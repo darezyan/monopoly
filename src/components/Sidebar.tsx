@@ -9,13 +9,22 @@ import {
   Handshake,
   Hourglass,
   KeyRound,
+  Landmark,
   LayoutGrid,
   Lock,
 } from 'lucide-react'
 import { BOARD, GROUP_COLORS, naira, type Tile } from '../data/board'
 import type { Game, SyncStatus } from '../game/useGame'
 import { TopControls } from './TopControls'
-import { DECK_NAMES, drawnCard, type BuyableTile, type GameState, type Player } from '../game/game'
+import {
+  DECK_NAMES,
+  LOAN_LAPS,
+  drawnCard,
+  loanHeadroom,
+  type BuyableTile,
+  type GameState,
+  type Player,
+} from '../game/game'
 import { TOKEN_LABELS, TokenDisc, inkFor } from './Token'
 
 type Props = {
@@ -24,10 +33,12 @@ type Props = {
   onOpenHistory: () => void
   /** Open the deal builder, optionally with a partner picked */
   onOpenTrade: (partner?: number) => void
+  /** Open the bank loan panel (only when the house rule is on) */
+  onOpenLoan: () => void
   onExit: () => void
 }
 
-export function Sidebar({ game, onOpenPortfolio, onOpenHistory, onOpenTrade, onExit }: Props) {
+export function Sidebar({ game, onOpenPortfolio, onOpenHistory, onOpenTrade, onOpenLoan, onExit }: Props) {
   const { state } = game
   return (
     <aside className="sidebar">
@@ -38,7 +49,13 @@ export function Sidebar({ game, onOpenPortfolio, onOpenHistory, onOpenTrade, onE
         <SyncBadge sync={game.sync} />
         <TopControls settings={state.settings} />
       </div>
-      <TurnCard game={game} onOpenPortfolio={onOpenPortfolio} onOpenTrade={onOpenTrade} onExit={onExit} />
+      <TurnCard
+        game={game}
+        onOpenPortfolio={onOpenPortfolio}
+        onOpenTrade={onOpenTrade}
+        onOpenLoan={onOpenLoan}
+        onExit={onExit}
+      />
       <div className={`players${state.players.length > 4 ? ' players--compact' : ''}`}>
         {state.players.map((p) => (
           <PlayerCard
@@ -104,7 +121,7 @@ function statusText(state: GameState): string {
   }
 }
 
-function TurnCard({ game, onOpenPortfolio, onOpenTrade, onExit }: Omit<Props, 'onOpenHistory'>) {
+function TurnCard({ game, onOpenPortfolio, onOpenTrade, onOpenLoan, onExit }: Omit<Props, 'onOpenHistory'>) {
   const { state, sync } = game
   const player = state.players[state.current]
   const busy = state.phase === 'rolling' || state.phase === 'moving' || sync === 'loading'
@@ -194,7 +211,7 @@ function TurnCard({ game, onOpenPortfolio, onOpenTrade, onExit }: Omit<Props, 'o
           </span>
         </div>
       ) : inDebt ? (
-        <DebtPanel game={game} onManage={() => onOpenPortfolio(player.id)} />
+        <DebtPanel game={game} onManage={() => onOpenPortfolio(player.id)} onBorrow={onOpenLoan} />
       ) : state.pendingPurchase !== null ? (
         <BuyOffer
           tile={BOARD[state.pendingPurchase] as BuyableTile}
@@ -224,7 +241,7 @@ function TurnCard({ game, onOpenPortfolio, onOpenTrade, onExit }: Omit<Props, 'o
           )}
         </>
       )}
-      {game.myTurn && (ownsSomething || canTrade(game)) && (
+      {game.myTurn && (ownsSomething || canTrade(game) || state.settings.bankLoans) && (
         <div className="turn__links">
           {ownsSomething && !inDebt && (
             <button className="turn__link" onClick={() => onOpenPortfolio(player.id)}>
@@ -235,6 +252,13 @@ function TurnCard({ game, onOpenPortfolio, onOpenTrade, onExit }: Omit<Props, 'o
           {canTrade(game) && (
             <button className="turn__link" onClick={() => onOpenTrade()}>
               <ArrowLeftRight size={15} /> Make a deal
+              <ChevronRight size={15} />
+            </button>
+          )}
+          {state.settings.bankLoans && !inDebt && (
+            <button className="turn__link" onClick={onOpenLoan}>
+              <Landmark size={15} /> Bank loan
+              {player.loan && <span className="turn__link-tag">{naira(player.loan.balance)} owed</span>}
               <ChevronRight size={15} />
             </button>
           )}
@@ -267,7 +291,7 @@ function othersStatus(state: GameState): string {
   return last ? `${player.name} ${last.text}.` : 'Getting ready…'
 }
 
-function DebtPanel({ game, onManage }: { game: Game; onManage: () => void }) {
+function DebtPanel({ game, onManage, onBorrow }: { game: Game; onManage: () => void; onBorrow: () => void }) {
   const { state } = game
   const player = state.players[state.current]
   const [confirming, setConfirming] = useState(false)
@@ -280,11 +304,19 @@ function DebtPanel({ game, onManage }: { game: Game; onManage: () => void }) {
         <AlertTriangle size={18} />
         You owe {creditor} <strong>{naira(-player.cash)}</strong>
       </div>
-      <p className="debt__note">Sell houses or mortgage property to raise the money. If you can’t, you’re bankrupt.</p>
+      <p className="debt__note">
+        Sell houses or mortgage property to raise the money
+        {loanHeadroom(state, player.id) > 0 ? ', or borrow from the bank' : ''}. If you can’t, you’re bankrupt.
+      </p>
       <div className="offer__actions">
         <button className="turn__btn" onClick={onManage}>
           <LayoutGrid size={18} /> Raise money
         </button>
+        {loanHeadroom(state, player.id) > 0 && (
+          <button className="offer__pass" onClick={onBorrow}>
+            <Landmark size={16} /> Borrow
+          </button>
+        )}
         <button
           className={`offer__pass debt__bust${confirming ? ' is-confirming' : ''}`}
           onClick={() => (confirming ? game.declareBankruptcy() : setConfirming(true))}
@@ -389,6 +421,14 @@ function PlayerCard({ player, active, state, presence, isMe, onOpen }: PlayerCar
           {player.inJail && (
             <span className="player__badge">
               <Lock size={11} strokeWidth={2.5} /> Kirikiri
+            </span>
+          )}
+          {player.loan && (
+            <span
+              className="player__badge player__badge--loan"
+              title={`Bank loan: ${naira(player.loan.balance)}, called in after ${LOAN_LAPS - player.loan.laps} more pass(es) of GO`}
+            >
+              <Landmark size={11} strokeWidth={2.5} /> {naira(player.loan.balance)}
             </span>
           )}
           {player.jailFree.length > 0 && (

@@ -114,6 +114,22 @@ function sections(settings: GameSettings): Section[] {
         </ul>
       ),
     },
+    ...(settings.bankLoans
+      ? [
+          {
+            icon: <Landmark />,
+            title: 'Bank loans (house rule)',
+            body: (
+              <ul>
+                <li>Borrow up to ₦100M plus half of what your properties are worth (max ₦500M).</li>
+                <li>Every time you pass GO, what you owe grows by {settings.loanRate}%.</li>
+                <li>On your third pass of GO the bank collects it all. Can’t pay? It’s a debt like any other.</li>
+                <li>Pay it back early, in part or in full, any time on your turn.</li>
+              </ul>
+            ),
+          },
+        ]
+      : []),
     {
       icon: <Trophy />,
       title: 'Money trouble & winning',

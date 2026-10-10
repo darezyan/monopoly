@@ -349,6 +349,8 @@ export function useGame() {
   const acceptTrade = useCallback(() => act({ type: 'acceptTrade' }), [act])
   const declineTrade = useCallback(() => act({ type: 'declineTrade' }), [act])
   const cancelTrade = useCallback(() => act({ type: 'cancelTrade' }), [act])
+  const borrow = useCallback((amount: number) => act({ type: 'borrow', amount }), [act])
+  const repayLoan = useCallback((amount: number) => act({ type: 'repayLoan', amount }), [act])
 
   /** Rematch: same players and settings, fresh board (offline / pass-and-play only). */
   const newGame = useCallback(() => start(seatsOf(latest.current), latest.current.settings), [start])
@@ -380,6 +382,8 @@ export function useGame() {
     acceptTrade,
     declineTrade,
     cancelTrade,
+    borrow,
+    repayLoan,
     controls,
     newGame,
   }

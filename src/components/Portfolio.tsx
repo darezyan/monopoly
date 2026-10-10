@@ -97,6 +97,12 @@ export function Portfolio({ state, playerId, onClose, onOpenDeed, canManage, onT
             <dt>Net worth</dt>
             <dd>{naira(netWorth(state, playerId))}</dd>
           </div>
+          {player.loan && (
+            <div>
+              <dt>Loan</dt>
+              <dd className="is-broke">{naira(player.loan.balance)}</dd>
+            </div>
+          )}
           <div>
             <dt>Deeds</dt>
             <dd>{owned}</dd>

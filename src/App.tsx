@@ -10,6 +10,7 @@ import { Room } from './components/Room'
 import { Setup } from './components/Setup'
 import { Sidebar, canTrade } from './components/Sidebar'
 import { TopControls } from './components/TopControls'
+import { LoanPanel } from './components/LoanPanel'
 import { TradeBuilder } from './components/TradeBuilder'
 import { DEFAULT_SETTINGS } from './game/game'
 import { createRoom, loadGameRow } from './game/persistence'
@@ -193,6 +194,7 @@ function GameScreen({ game, onExit }: { game: ReturnType<typeof useGame>; onExit
   const [history, setHistory] = useState(false)
   /** Deal builder: a new offer (optionally to a chosen partner) or a counter-offer */
   const [deal, setDeal] = useState<{ partner?: number; counter?: boolean } | null>(null)
+  const [loanOpen, setLoanOpen] = useState(false)
   useGameSounds(state)
 
   // A deed left open by the previous player shouldn't carry into the next turn
@@ -201,7 +203,7 @@ function GameScreen({ game, onExit }: { game: ReturnType<typeof useGame>; onExit
   // Space rolls or ends the turn; B / P buy or pass when a purchase is on the table
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.repeat || e.metaKey || e.ctrlKey || portfolio !== null || history || deal) return
+      if (e.repeat || e.metaKey || e.ctrlKey || portfolio !== null || history || deal || loanOpen) return
       if (e.key === 'Escape') return setPinned(null)
       if (waiting) return
       if (e.target instanceof HTMLElement && e.target.closest('button, input, textarea')) return
@@ -218,7 +220,7 @@ function GameScreen({ game, onExit }: { game: ReturnType<typeof useGame>; onExit
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [state.phase, state.pendingPurchase, portfolio, history, deal, waiting, roll, endTurn, buy, pass, applyCard])
+  }, [state.phase, state.pendingPurchase, portfolio, history, deal, loanOpen, waiting, roll, endTurn, buy, pass, applyCard])
 
   return (
     <main className="app">
@@ -234,9 +236,11 @@ function GameScreen({ game, onExit }: { game: ReturnType<typeof useGame>; onExit
         onOpenPortfolio={setPortfolio}
         onOpenHistory={() => setHistory(true)}
         onOpenTrade={(partner) => setDeal({ partner })}
+        onOpenLoan={() => setLoanOpen(true)}
         onExit={onExit}
       />
       {history && <History state={state} onClose={() => setHistory(false)} />}
+      {loanOpen && game.myTurn && <LoanPanel game={game} onClose={() => setLoanOpen(false)} />}
       {deal && (deal.counter ? state.trade : canTrade(game)) && (
         <TradeBuilder
           state={state}

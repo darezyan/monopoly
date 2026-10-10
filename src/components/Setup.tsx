@@ -311,6 +311,44 @@ export function SettingsPanel({
         </label>
       ))}
 
+      <label className="rule">
+        <span className="rule__text">
+          <span className="rule__title">Bank loans</span>
+          <span className="rule__desc">
+            Borrow up to ₦500M. It grows each time you pass GO and the bank collects it on your third pass.
+          </span>
+        </span>
+        <input
+          type="checkbox"
+          className="switch"
+          checked={settings.bankLoans}
+          disabled={readOnly}
+          onChange={(e) => onChange({ ...settings, bankLoans: e.target.checked })}
+        />
+      </label>
+      {settings.bankLoans && (
+        <div className="rule rule--sub">
+          <div className="rule__text">
+            <span className="rule__title">Loan interest</span>
+            <span className="rule__desc">Added each time you pass GO.</span>
+          </div>
+          <div className="segmented" role="radiogroup" aria-label="Loan interest">
+            {[5, 10, 15, 20, 25].map((rate) => (
+              <button
+                key={rate}
+                role="radio"
+                aria-checked={settings.loanRate === rate}
+                className={settings.loanRate === rate ? 'is-on' : undefined}
+                disabled={readOnly && settings.loanRate !== rate}
+                onClick={() => onChange({ ...settings, loanRate: rate })}
+              >
+                {rate}%
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="rule is-soon">
         <span className="rule__text">
           <span className="rule__title">
