@@ -37,17 +37,29 @@ function anchor(player: Player): { x: number; y: number } {
   return { x: pct(x), y: pct(y) }
 }
 
-/** Spread tokens sharing a square so they don't stack exactly. Offsets in token-widths. */
-function spread(i: number, n: number): [number, number] {
-  if (n === 1) return [0, 0]
-  if (n === 2) return [i === 0 ? -0.32 : 0.32, i === 0 ? -0.18 : 0.18]
-  const grid: [number, number][] = [
-    [-0.32, -0.3],
-    [0.32, -0.3],
-    [-0.32, 0.3],
-    [0.32, 0.3],
-  ]
-  return grid[i]
+/**
+ * Spread tokens sharing a square so they don't stack exactly.
+ * Returns an offset in token-widths and a scale (crowded squares shrink tokens).
+ */
+function spread(i: number, n: number): [number, number, number] {
+  if (n === 1) return [0, 0, 1]
+  if (n === 2) return [i === 0 ? -0.32 : 0.32, i === 0 ? -0.18 : 0.18, 1]
+  if (n <= 4) {
+    const grid: [number, number][] = [
+      [-0.32, -0.3],
+      [0.32, -0.3],
+      [-0.32, 0.3],
+      [0.32, 0.3],
+    ]
+    return [...grid[i], 0.9]
+  }
+  // 5–8 tokens: up to three per row, smaller
+  const cols = 3
+  const rows = Math.ceil(n / cols)
+  const col = i % cols
+  const row = Math.floor(i / cols)
+  const inRow = Math.min(cols, n - row * cols)
+  return [(col - (inRow - 1) / 2) * 0.62, (row - (rows - 1) / 2) * 0.62, 0.68]
 }
 
 export function Tokens({ players, current }: { players: Player[]; current: number }) {
@@ -55,7 +67,7 @@ export function Tokens({ players, current }: { players: Player[]; current: numbe
     <div className="tokens" aria-hidden>
       {players.map((p) => {
         const mates = players.filter((o) => o.position === p.position && o.inJail === p.inJail)
-        const [dx, dy] = spread(mates.indexOf(p), mates.length)
+        const [dx, dy, scale] = spread(mates.indexOf(p), mates.length)
         const { x, y } = anchor(p)
         return (
           <div
@@ -64,7 +76,7 @@ export function Tokens({ players, current }: { players: Player[]; current: numbe
             style={{
               left: `${x}%`,
               top: `${y}%`,
-              transform: `translate(calc(-50% + ${dx * 100}%), calc(-50% + ${dy * 100}%))`,
+              transform: `translate(calc(-50% + ${dx * 100}%), calc(-50% + ${dy * 100}%)) scale(${scale})`,
             }}
           >
             {/* Re-keying on position replays the hop animation on every step */}

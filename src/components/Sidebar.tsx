@@ -1,21 +1,30 @@
 import { useEffect, useRef, useState } from 'react'
-import { AlertTriangle, ChevronRight, Dices, Handshake, KeyRound, LayoutGrid, Lock } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, Bot, ChevronRight, Dices, Handshake, KeyRound, LayoutGrid, Lock } from 'lucide-react'
 import { BOARD, GROUP_COLORS, naira, type Tile } from '../data/board'
 import type { Game, SyncStatus } from '../game/useGame'
+import { TopControls } from './TopControls'
 import { DECK_NAMES, drawnCard, type BuyableTile, type GameState, type Player } from '../game/game'
 import { TOKEN_LABELS, TokenDisc, inkFor } from './Token'
 
 type Props = {
   game: Game
   onOpenPortfolio: (playerId: number) => void
+  onExit: () => void
 }
 
-export function Sidebar({ game, onOpenPortfolio }: Props) {
+export function Sidebar({ game, onOpenPortfolio, onExit }: Props) {
   const { state } = game
   return (
     <aside className="sidebar">
+      <div className="sidebar__top">
+        <button className="menu-btn" onClick={onExit}>
+          <ArrowLeft size={16} /> Menu
+        </button>
+        <SyncBadge sync={game.sync} />
+        <TopControls settings={state.settings} />
+      </div>
       <TurnCard game={game} onOpenPortfolio={onOpenPortfolio} />
-      <div className="players">
+      <div className={`players${state.players.length > 4 ? ' players--compact' : ''}`}>
         {state.players.map((p) => (
           <PlayerCard
             key={p.id}
@@ -27,17 +36,17 @@ export function Sidebar({ game, onOpenPortfolio }: Props) {
         ))}
       </div>
       <Feed state={state} />
-      <SyncBadge sync={game.sync} />
     </aside>
   )
 }
 
 const SYNC_LABEL: Record<SyncStatus, string> = {
   offline: 'Playing offline',
+  idle: 'Not saved yet',
   loading: 'Loading game…',
   saving: 'Saving…',
   saved: 'Saved',
-  error: 'Couldn’t save. Check your connection',
+  error: 'Couldn’t save',
 }
 
 function SyncBadge({ sync }: { sync: SyncStatus }) {
@@ -77,11 +86,11 @@ function statusText(state: GameState): string {
   }
 }
 
-function TurnCard({ game, onOpenPortfolio }: Props) {
+function TurnCard({ game, onOpenPortfolio }: Omit<Props, 'onExit'>) {
   const { state, sync } = game
   const player = state.players[state.current]
   const busy = state.phase === 'rolling' || state.phase === 'moving' || sync === 'loading'
-  const inDebt = player.cash < 0 && (state.phase === 'idle' || state.phase === 'landed')
+  const inDebt = player.cash < 0 && (state.phase === 'idle' || state.phase === 'landed') && !player.robot
   const ownsSomething = Object.values(state.owners).includes(player.id)
 
   if (state.phase === 'over') {
@@ -127,9 +136,18 @@ function TurnCard({ game, onOpenPortfolio }: Props) {
         </div>
       </div>
       <p className="turn__status" aria-live="polite">
-        {statusText(state)}
+        {player.robot ? robotStatus(state) : statusText(state)}
       </p>
-      {inDebt ? (
+      {player.robot ? (
+        <div className="turn__robot">
+          <Bot size={18} /> {player.name} dey think…
+          <span className="dots" aria-hidden>
+            <i />
+            <i />
+            <i />
+          </span>
+        </div>
+      ) : inDebt ? (
         <DebtPanel game={game} onManage={() => onOpenPortfolio(player.id)} />
       ) : state.pendingPurchase !== null ? (
         <BuyOffer
@@ -160,7 +178,7 @@ function TurnCard({ game, onOpenPortfolio }: Props) {
           )}
         </>
       )}
-      {ownsSomething && !inDebt && (
+      {ownsSomething && !inDebt && !player.robot && (
         <button className="turn__link" onClick={() => onOpenPortfolio(player.id)}>
           <LayoutGrid size={15} /> Your properties
           <ChevronRight size={15} />
@@ -168,6 +186,16 @@ function TurnCard({ game, onOpenPortfolio }: Props) {
       )}
     </section>
   )
+}
+
+/** What a robot is up to, in the third person */
+function robotStatus(state: GameState): string {
+  const player = state.players[state.current]
+  const last = state.events.find((e) => e.playerId === player.id)
+  if (state.phase === 'rolling') return 'Rolling…'
+  if (state.phase === 'moving') return 'On the move…'
+  if (state.pendingPurchase !== null) return `Thinking about ${BOARD[state.pendingPurchase].name}…`
+  return last ? `${player.name} ${last.text}.` : 'Getting ready…'
 }
 
 function DebtPanel({ game, onManage }: { game: Game; onManage: () => void }) {
@@ -269,6 +297,11 @@ function PlayerCard({ player, active, state, onOpen }: PlayerCardProps) {
       <span className="player__meta">
         <span className="player__name">
           {player.name}
+          {player.robot && (
+            <span className="player__badge player__badge--bot" title={`${player.robot} robot`}>
+              <Bot size={11} strokeWidth={2.5} /> <span className="player__badge-text">{player.robot}</span>
+            </span>
+          )}
           {player.bankrupt && <span className="player__badge player__badge--out">Bankrupt</span>}
           {player.inJail && (
             <span className="player__badge">

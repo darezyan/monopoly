@@ -27,7 +27,8 @@ export function Board({ game, pinned, onPin }: Props) {
   const ownerOf = (i: number) => (state.owners[i] === undefined ? undefined : state.players[state.owners[i]])
   const shownTile = shown === null ? null : BOARD[shown]
   // Management buttons only make sense on the current player's own deed, once it's pinned open
-  const canManage = shown !== null && shown === pinned && state.owners[shown] === state.current
+  const canManage =
+    shown !== null && shown === pinned && state.owners[shown] === state.current && !game.robotTurn
 
   return (
     <div className="board-wrap">

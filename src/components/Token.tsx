@@ -1,22 +1,28 @@
-import { Bike, Bus, CarTaxiFront, Sailboat, type LucideIcon } from 'lucide-react'
-import type { Player, TokenKind } from '../game/game'
+import { Bike, Bus, CarTaxiFront, CookingPot, Drum, Sailboat, Shirt, Zap, type LucideIcon } from 'lucide-react'
+import { TOKENS, type TokenKind } from '../data/tokens'
+import type { Player } from '../game/game'
 
 export const TOKEN_ICONS: Record<TokenKind, LucideIcon> = {
   danfo: Bus,
   okada: Bike,
   taxi: CarTaxiFront,
   canoe: Sailboat,
+  jollof: CookingPot,
+  drum: Drum,
+  agbada: Shirt,
+  gen: Zap,
 }
 
-export const TOKEN_LABELS: Record<TokenKind, string> = {
-  danfo: 'Danfo',
-  okada: 'Okada',
-  taxi: 'Taxi',
-  canoe: 'Canoe',
-}
+export const TOKEN_LABELS = Object.fromEntries(TOKENS.map((t) => [t.kind, t.label])) as Record<TokenKind, string>
 
 /** A player's token: a coloured disc with their vehicle. */
-export function TokenDisc({ player, className = '' }: { player: Player; className?: string }) {
+export function TokenDisc({
+  player,
+  className = '',
+}: {
+  player: Pick<Player, 'token' | 'color'>
+  className?: string
+}) {
   const Icon = TOKEN_ICONS[player.token]
   return (
     <span

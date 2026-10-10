@@ -39,7 +39,7 @@ type Props = {
 
 export function Portfolio({ state, playerId, onClose, onOpenDeed }: Props) {
   const player = state.players[playerId]
-  const mine = playerId === state.current
+  const mine = playerId === state.current && !player.robot
   const owned = BOARD.filter((_, i) => state.owners[i] === playerId).length
   const { houses, hotels } = buildingsOf(state, playerId)
 
