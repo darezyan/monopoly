@@ -1,5 +1,16 @@
 import { useEffect, useRef, useState } from 'react'
-import { AlertTriangle, ArrowLeft, Bot, ChevronRight, Dices, Handshake, Hourglass, KeyRound, LayoutGrid, Lock } from 'lucide-react'
+import {
+  AlertTriangle,
+  ArrowLeft,
+  Bot,
+  ChevronRight,
+  Dices,
+  Handshake,
+  Hourglass,
+  KeyRound,
+  LayoutGrid,
+  Lock,
+} from 'lucide-react'
 import { BOARD, GROUP_COLORS, naira, type Tile } from '../data/board'
 import type { Game, SyncStatus } from '../game/useGame'
 import { TopControls } from './TopControls'
@@ -9,10 +20,11 @@ import { TOKEN_LABELS, TokenDisc, inkFor } from './Token'
 type Props = {
   game: Game
   onOpenPortfolio: (playerId: number) => void
+  onOpenHistory: () => void
   onExit: () => void
 }
 
-export function Sidebar({ game, onOpenPortfolio, onExit }: Props) {
+export function Sidebar({ game, onOpenPortfolio, onOpenHistory, onExit }: Props) {
   const { state } = game
   return (
     <aside className="sidebar">
@@ -37,7 +49,7 @@ export function Sidebar({ game, onOpenPortfolio, onExit }: Props) {
           />
         ))}
       </div>
-      <Feed state={state} />
+      <Feed state={state} onOpenHistory={onOpenHistory} />
     </aside>
   )
 }
@@ -89,7 +101,7 @@ function statusText(state: GameState): string {
   }
 }
 
-function TurnCard({ game, onOpenPortfolio, onExit }: Props) {
+function TurnCard({ game, onOpenPortfolio, onExit }: Omit<Props, 'onOpenHistory'>) {
   const { state, sync } = game
   const player = state.players[state.current]
   const busy = state.phase === 'rolling' || state.phase === 'moving' || sync === 'loading'
@@ -345,10 +357,7 @@ function PlayerCard({ player, active, state, presence, isMe, onOpen }: PlayerCar
       <span className={`player__cash${player.cash < 0 ? ' is-broke' : ''}`}>
         {naira(Math.round(shown))}
         {lastMoney && (
-          <span
-            key={lastMoney.id}
-            className={`player__delta ${lastMoney.amount! >= 0 ? 'is-up' : 'is-down'}`}
-          >
+          <span key={lastMoney.id} className={`player__delta ${lastMoney.amount! >= 0 ? 'is-up' : 'is-down'}`}>
             {lastMoney.amount! >= 0 ? '+' : '−'}
             {naira(Math.abs(lastMoney.amount!))}
           </span>
@@ -370,30 +379,38 @@ function PlayerCard({ player, active, state, presence, isMe, onOpen }: PlayerCar
   )
 }
 
-function Feed({ state }: { state: GameState }) {
+function Feed({ state, onOpenHistory }: { state: GameState; onOpenHistory: () => void }) {
   if (state.events.length === 0) {
     return <p className="feed feed--empty">Nothing don happen yet. First roll is yours.</p>
   }
   return (
-    <ol className="feed">
-      {state.events.slice(0, 6).map((e) => {
-        const p = state.players[e.playerId]
-        return (
-          <li key={e.id} className="feed__item" style={{ '--token': p.color } as React.CSSProperties}>
-            <span className="feed__dot" />
-            <span>
-              <strong>{p.name}</strong> {e.text}
-            </span>
-            {e.amount !== undefined && (
-              <span className={`feed__amt ${e.amount >= 0 ? 'is-up' : 'is-down'}`}>
-                {e.amount >= 0 ? '+' : '−'}
-                {naira(Math.abs(e.amount))}
+    <div className="feed-wrap">
+      <div className="feed__head">
+        <span>What’s happening</span>
+        <button className="feed__all" onClick={onOpenHistory}>
+          See all <ChevronRight size={14} />
+        </button>
+      </div>
+      <ol className="feed">
+        {state.events.slice(0, 6).map((e) => {
+          const p = state.players[e.playerId]
+          return (
+            <li key={e.id} className="feed__item" style={{ '--token': p.color } as React.CSSProperties}>
+              <span className="feed__dot" />
+              <span>
+                <strong>{p.name}</strong> {e.text}
               </span>
-            )}
-          </li>
-        )
-      })}
-    </ol>
+              {e.amount !== undefined && (
+                <span className={`feed__amt ${e.amount >= 0 ? 'is-up' : 'is-down'}`}>
+                  {e.amount >= 0 ? '+' : '−'}
+                  {naira(Math.abs(e.amount))}
+                </span>
+              )}
+            </li>
+          )
+        })}
+      </ol>
+    </div>
   )
 }
 
