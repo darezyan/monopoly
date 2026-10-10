@@ -8,6 +8,7 @@ import {
   groupIndexes,
   isBuyable,
   level,
+  MIN_RAISE,
   loanBlocker,
   loanHeadroom,
   LOAN_LAPS,
@@ -33,7 +34,13 @@ const RESERVE: Record<RobotLevel, number> = { easy: 0, normal: 150, sharp: 60 }
  * nothing for them to do (not their turn, or the board is still animating).
  */
 export function robotMove(state: GameState): Action | null {
-  // A deal on the table comes first, whoever's turn it is
+  // An auction comes first: bid or drop out when it's our go
+  if (state.auction) {
+    const bidder = state.players[actingPlayer(state)]
+    return bidder.robot ? auctionMove(state, bidder.id) : null
+  }
+
+  // A deal on the table comes next, whoever's turn it is
   if (state.trade) {
     const responder = state.players[actingPlayer(state)]
     if (!responder.robot) return null
@@ -358,4 +365,26 @@ function pickDeal(state: GameState, me: number): Action | null {
   // Usually go for the most appealing deal, sometimes another one
   candidates.sort((a, b) => b.appeal - a.appeal)
   return candidates[Math.random() < 0.75 ? 0 : Math.floor(Math.random() * candidates.length)].action
+}
+
+/**
+ * Bid in an auction: the robot sets itself a ceiling from how much it needs the property
+ * and its personality, raises in steps that suit its style, and drops out past the ceiling.
+ */
+function auctionMove(state: GameState, me: number): Action {
+  const a = state.auction!
+  const robot = state.players[me]
+  const persona = personaOf(state, me)
+  const noise = NOISE[robot.robot ?? 'normal']
+  const after = { ...state.owners, [a.index]: me }
+  const worth = valueTo(state, a.index, me, after)
+  // Completing a set is worth dipping into reserves for; anything else, keep a cushion
+  const completes = worth > (BOARD[a.index] as BuyableTile).price * 2
+  const cushion = completes ? 20 : 40 + persona.caution * 200
+  const ceiling = Math.min(robot.cash - cushion, worth * (0.55 + persona.eagerness * 0.45) * jitter(noise))
+  const minimum = a.bid + MIN_RAISE
+  if (minimum > ceiling) return { type: 'dropOut' }
+  // Eager robots jump in big steps; careful ones nudge the price up
+  const step = MIN_RAISE * (1 + Math.floor(Math.random() * (2 + persona.eagerness * 6)))
+  return { type: 'bid', amount: Math.max(minimum, Math.min(roundTo10(ceiling), a.bid + step)) }
 }
