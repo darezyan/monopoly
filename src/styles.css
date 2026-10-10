@@ -1485,7 +1485,8 @@ body {
   background: rgb(244 239 226 / 0.4);
 }
 
-.sync--saved .sync__dot { background: #6ee7a0; }
+.sync--saved .sync__dot,
+.sync--live .sync__dot { background: #6ee7a0; }
 .sync--saving .sync__dot,
 .sync--loading .sync__dot {
   background: var(--danfo);
@@ -3337,5 +3338,274 @@ body {
   .player__sub,
   .player__badge-text {
     display: none;
+  }
+}
+
+/* ---------- Online rooms ---------- */
+
+.code-card {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  margin-bottom: 16px;
+  padding: 22px 18px 18px;
+  border-radius: 20px;
+  background:
+    repeating-linear-gradient(-45deg, rgb(0 0 0 / 0.04) 0 10px, transparent 10px 20px),
+    var(--danfo);
+  color: var(--ink);
+  text-align: center;
+  box-shadow: inset 0 6px 0 -2px var(--ink), inset 0 -6px 0 -2px var(--ink), 0 16px 40px -20px rgb(0 0 0 / 0.6);
+}
+
+.code-card__label {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.code-card__code {
+  font-family: var(--font-display);
+  font-size: clamp(40px, 9vw, 60px);
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  user-select: all;
+}
+
+.code-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.code-card__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 14px;
+  border: 2px solid var(--ink);
+  border-radius: 99px;
+  background: #fffdf5;
+  color: var(--ink);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  text-decoration: none;
+  cursor: pointer;
+  transition: transform 80ms ease;
+}
+
+.code-card__btn:active {
+  transform: translateY(1px);
+}
+
+.code-card__btn--wa {
+  background: #25d366;
+  border-color: #128c4a;
+  color: #fff;
+}
+
+.code-card__btn:focus-visible {
+  outline: 3px solid #fff;
+  outline-offset: 2px;
+}
+
+.seat--me {
+  box-shadow: inset 0 0 0 2px var(--danfo);
+}
+
+.seat--empty {
+  background: transparent;
+  box-shadow: none;
+  border: 1.5px dashed rgb(28 26 22 / 0.18);
+  min-height: 60px;
+}
+
+.seat__ghost {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 1.5px dashed rgb(28 26 22 / 0.25);
+}
+
+.seat__waiting {
+  font-size: 14px;
+  color: var(--ink-soft);
+  opacity: 0.7;
+}
+
+.seat__name--static {
+  display: block;
+  line-height: 34px;
+  border: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.seat__token-btn {
+  position: relative;
+}
+
+.seat__token-btn:disabled {
+  cursor: default;
+}
+
+.seat__token-btn:disabled:hover {
+  transform: none;
+}
+
+.seat__token-btn .player__presence {
+  right: 0;
+  bottom: 0;
+}
+
+.room__waiting {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  padding: 14px 22px;
+  border-radius: 99px;
+  background: var(--paper);
+  color: var(--ink);
+  font-weight: 700;
+}
+
+/* Join */
+
+.join__form {
+  display: grid;
+  gap: 18px;
+  max-width: 480px;
+}
+
+.field__label--dark {
+  color: var(--ink-soft);
+}
+
+.field__input--light {
+  background: #fff;
+  box-shadow: inset 0 0 0 1px rgb(28 26 22 / 0.12);
+}
+
+.field__input.is-invalid {
+  border-color: #e8a49c;
+}
+
+.field__hint {
+  font-size: 13px;
+  font-weight: 600;
+  color: #ffb4a8;
+}
+
+.join__code {
+  display: flex;
+  align-items: center;
+  height: 76px;
+  padding: 0 18px;
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: inset 0 0 0 2px var(--ink);
+  font-family: var(--font-display);
+  font-size: 40px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+}
+
+.join__code:focus-within {
+  box-shadow: inset 0 0 0 3px var(--danfo), 0 0 0 1px var(--ink);
+}
+
+.join__prefix {
+  color: var(--ink-soft);
+  opacity: 0.6;
+}
+
+.join__input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: uppercase;
+}
+
+.join__input::placeholder {
+  color: rgb(28 26 22 / 0.18);
+}
+
+.join__error {
+  justify-self: start;
+}
+
+/* Saved list: rooms and online games */
+
+.saved__room {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  background: var(--danfo);
+  color: var(--ink);
+}
+
+.saved__online {
+  margin-right: 6px;
+  padding: 1px 7px;
+  border-radius: 99px;
+  background: #25d366;
+  color: #fff;
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  vertical-align: 1px;
+}
+
+/* Presence on player cards */
+
+.player__avatar {
+  position: relative;
+  display: block;
+}
+
+.player__presence {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #9aa3b5;
+  box-shadow: 0 0 0 2px var(--indigo);
+}
+
+.player__presence.is-on {
+  background: #3ddc84;
+}
+
+.seat .player__presence {
+  box-shadow: 0 0 0 2px #fff;
+}
+
+.player__badge--me {
+  background: var(--danfo);
+  color: var(--ink);
+}
+
+@media (max-width: 560px) {
+  .player__avatar {
+    grid-row: span 2;
   }
 }

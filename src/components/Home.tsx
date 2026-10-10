@@ -11,10 +11,26 @@ type Props = {
   onNickname: (name: string) => void
   onSetup: (mode: SetupMode) => void
   onContinue: (id: string) => void
+  onOpenRoom: (id: string) => void
+  onCreateRoom: () => Promise<void>
+  onJoin: () => void
   notice?: string | null
 }
 
-export function Home({ nickname, onNickname, onSetup, onContinue, notice }: Props) {
+export function Home({ nickname, onNickname, onSetup, onContinue, onOpenRoom, onCreateRoom, onJoin, notice }: Props) {
+  const [creating, setCreating] = useState(false)
+  const [nameNeeded, setNameNeeded] = useState(false)
+
+  const createRoom = async () => {
+    if (!nickname.trim()) return setNameNeeded(true)
+    setCreating(true)
+    try {
+      await onCreateRoom()
+    } finally {
+      setCreating(false)
+    }
+  }
+
   return (
     <div className="home">
       <header className="home__hero">
@@ -33,12 +49,16 @@ export function Home({ nickname, onNickname, onSetup, onContinue, notice }: Prop
         <label className="field">
           <span className="field__label">Wetin we go call you?</span>
           <input
-            className="field__input"
+            className={`field__input${nameNeeded && !nickname.trim() ? ' is-invalid' : ''}`}
             value={nickname}
             maxLength={16}
             placeholder="Your nickname"
-            onChange={(e) => onNickname(e.target.value)}
+            onChange={(e) => {
+              setNameNeeded(false)
+              onNickname(e.target.value)
+            }}
           />
+          {nameNeeded && !nickname.trim() && <span className="field__hint">Your friends need a name to see in the room.</span>}
         </label>
 
         <div className="modes">
@@ -54,11 +74,23 @@ export function Home({ nickname, onNickname, onSetup, onContinue, notice }: Prop
             text="Friends in the same room, sharing one device."
             onClick={() => onSetup('local')}
           />
-          <ModeCard icon={<Radio />} title="Create Room" text="Play online. Share a code with friends." soon />
-          <ModeCard icon={<KeyRound />} title="Join with Code" text="Got a code from a friend? Enter it here." soon />
+          <ModeCard
+            icon={<Radio />}
+            title={creating ? 'Creating room…' : 'Create Room'}
+            text="Play online. Share a code with friends."
+            onClick={createRoom}
+            soon={!supabase}
+          />
+          <ModeCard
+            icon={<KeyRound />}
+            title="Join with Code"
+            text="Got a code from a friend? Enter it here."
+            onClick={onJoin}
+            soon={!supabase}
+          />
         </div>
 
-        {supabase && <SavedGames onContinue={onContinue} />}
+        {supabase && <SavedGames onContinue={onContinue} onOpenRoom={onOpenRoom} />}
         {!supabase && <p className="home__offline">Playing offline. Games won’t be saved on this device.</p>}
       </main>
     </div>
@@ -83,7 +115,7 @@ function ModeCard({ icon, title, text, onClick, soon }: ModeCardProps) {
   )
 }
 
-function SavedGames({ onContinue }: { onContinue: (id: string) => void }) {
+function SavedGames({ onContinue, onOpenRoom }: { onContinue: (id: string) => void; onOpenRoom: (id: string) => void }) {
   const [games, setGames] = useState<GameSummary[] | null>(null)
   const [failed, setFailed] = useState(false)
 
@@ -113,6 +145,24 @@ function SavedGames({ onContinue }: { onContinue: (id: string) => void }) {
       <ul className="saved__list">
         {games.map((g) => {
           const { state } = g
+          if (!state) {
+            return (
+              <li key={g.id}>
+                <button className="saved__game" onClick={() => onOpenRoom(g.id)}>
+                  <span className="saved__room">
+                    <Radio size={18} />
+                  </span>
+                  <span className="saved__meta">
+                    <span className="saved__names">Room {g.code}</span>
+                    <span className="saved__status">Waiting to start · {timeAgo(g.updatedAt)}</span>
+                  </span>
+                  <span className="saved__go">
+                    <Play size={14} /> Open
+                  </span>
+                </button>
+              </li>
+            )
+          }
           const over = state.phase === 'over'
           const current = state.players[over ? state.winner! : state.current]
           return (
@@ -124,7 +174,10 @@ function SavedGames({ onContinue }: { onContinue: (id: string) => void }) {
                   ))}
                 </span>
                 <span className="saved__meta">
-                  <span className="saved__names">{state.players.map((p) => p.name).join(', ')}</span>
+                  <span className="saved__names">
+                    {g.code && <span className="saved__online">Online</span>}
+                    {state.players.map((p) => p.name).join(', ')}
+                  </span>
                   <span className="saved__status">
                     {over ? `${current.name} won` : `${current.name}’s turn`} · {timeAgo(g.updatedAt)}
                   </span>

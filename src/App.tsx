@@ -3,13 +3,23 @@ import { installAudioUnlock, startMusic } from './audio/sound'
 import { useGameSounds } from './audio/useGameSounds'
 import { Board } from './components/Board'
 import { Home, type SetupMode } from './components/Home'
+import { JoinRoom } from './components/JoinRoom'
 import { Portfolio } from './components/Portfolio'
+import { Room } from './components/Room'
 import { Setup } from './components/Setup'
 import { Sidebar } from './components/Sidebar'
 import { TopControls } from './components/TopControls'
+import { DEFAULT_SETTINGS } from './game/game'
+import { createRoom, loadGameRow } from './game/persistence'
 import { useGame } from './game/useGame'
 
-type Screen = { name: 'home' } | { name: 'setup'; mode: SetupMode } | { name: 'game' } | { name: 'loading' }
+type Screen =
+  | { name: 'home' }
+  | { name: 'setup'; mode: SetupMode }
+  | { name: 'join'; code?: string }
+  | { name: 'room'; gameId: string }
+  | { name: 'game' }
+  | { name: 'loading' }
 
 const NICKNAME_KEY = 'eko:nickname'
 
@@ -21,10 +31,24 @@ function readNickname() {
   }
 }
 
+/** Keep the address bar pointing at what's on screen, so links and reloads land in the same place. */
+function setUrl(params: Record<string, string | null>) {
+  const url = new URL(location.href)
+  for (const [k, v] of Object.entries(params)) {
+    if (v) url.searchParams.set(k, v)
+    else url.searchParams.delete(k)
+  }
+  history.replaceState(null, '', url)
+}
+
 export function App() {
   const game = useGame()
-  const linked = new URLSearchParams(location.search).get('game')
-  const [screen, setScreen] = useState<Screen>(linked ? { name: 'loading' } : { name: 'home' })
+  const params = new URLSearchParams(location.search)
+  const linkedGame = params.get('game')
+  const linkedRoom = params.get('room')
+  const [screen, setScreen] = useState<Screen>(
+    linkedGame ? { name: 'loading' } : linkedRoom ? { name: 'join', code: linkedRoom } : { name: 'home' },
+  )
   const [notice, setNotice] = useState<string | null>(null)
   const [nickname, setNickname] = useState(readNickname)
 
@@ -37,17 +61,35 @@ export function App() {
     }
   }
 
+  const goHome = (message: string | null = null) => {
+    setUrl({ game: null, room: null })
+    setNotice(message)
+    setScreen({ name: 'home' })
+  }
+
   const openGame = async (id: string) => {
     setScreen({ name: 'loading' })
-    const ok = await game.open(id)
-    if (ok) return setScreen({ name: 'game' })
-    setNotice('That game couldn’t be found. It may belong to another device.')
-    setScreen({ name: 'home' })
+    if (await game.open(id)) return setScreen({ name: 'game' })
+    goHome('That game couldn’t be opened. It may belong to another device.')
+  }
+
+  /** A room you're seated in: its lobby while waiting, the game once it has started. */
+  const openRoom = async (id: string) => {
+    setScreen({ name: 'loading' })
+    try {
+      const row = await loadGameRow(id)
+      if (!row) return goHome('That room couldn’t be found.')
+      if (row.status !== 'lobby') return openGame(id)
+      setUrl({ game: null, room: row.code })
+      setScreen({ name: 'room', gameId: id })
+    } catch {
+      goHome('Couldn’t reach that room. Check your connection.')
+    }
   }
 
   // A ?game=… link opens that game straight away
   useEffect(() => {
-    if (linked) openGame(linked)
+    if (linkedGame) openGame(linkedGame)
   }, [])
 
   // Browsers block audio until the first tap or keypress; start the music then
@@ -62,7 +104,7 @@ export function App() {
               Èkó<span className="logo__dot">.</span>
             </h1>
           </div>
-          <p>Loading your game…</p>
+          <p>Loading…</p>
         </div>
       )
     case 'home':
@@ -78,6 +120,19 @@ export function App() {
               setScreen({ name: 'setup', mode })
             }}
             onContinue={openGame}
+            onOpenRoom={openRoom}
+            onCreateRoom={async () => {
+              setNotice(null)
+              try {
+                await openRoom(await createRoom(nickname.trim(), 'danfo', DEFAULT_SETTINGS))
+              } catch (err) {
+                goHome(`Couldn’t create a room: ${(err as Error).message}`)
+              }
+            }}
+            onJoin={() => {
+              setNotice(null)
+              setScreen({ name: 'join' })
+            }}
           />
         </>
       )
@@ -96,13 +151,33 @@ export function App() {
           />
         </>
       )
+    case 'join':
+      return (
+        <>
+          <TopControls />
+          <JoinRoom
+            initialCode={screen.code}
+            nickname={nickname}
+            onNickname={saveNickname}
+            onBack={() => goHome()}
+            onJoined={openRoom}
+          />
+        </>
+      )
+    case 'room':
+      return (
+        <>
+          <TopControls />
+          <Room gameId={screen.gameId} onLeave={() => goHome()} onStarted={() => openGame(screen.gameId)} />
+        </>
+      )
     case 'game':
       return (
         <GameScreen
           game={game}
           onExit={() => {
             game.leave()
-            setScreen({ name: 'home' })
+            goHome()
           }}
         />
       )
@@ -110,7 +185,7 @@ export function App() {
 }
 
 function GameScreen({ game, onExit }: { game: ReturnType<typeof useGame>; onExit: () => void }) {
-  const { state, roll, endTurn, buy, pass, applyCard, robotTurn } = game
+  const { state, roll, endTurn, buy, pass, applyCard, waiting } = game
   const [pinned, setPinned] = useState<number | null>(null)
   const [portfolio, setPortfolio] = useState<number | null>(null)
   useGameSounds(state)
@@ -123,7 +198,7 @@ function GameScreen({ game, onExit }: { game: ReturnType<typeof useGame>; onExit
     const onKey = (e: KeyboardEvent) => {
       if (e.repeat || e.metaKey || e.ctrlKey || portfolio !== null) return
       if (e.key === 'Escape') return setPinned(null)
-      if (robotTurn) return
+      if (waiting) return
       if (e.target instanceof HTMLElement && e.target.closest('button, input, textarea')) return
       if (state.pendingPurchase !== null) {
         if (e.key === 'b') buy()
@@ -138,16 +213,17 @@ function GameScreen({ game, onExit }: { game: ReturnType<typeof useGame>; onExit
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [state.phase, state.pendingPurchase, portfolio, robotTurn, roll, endTurn, buy, pass, applyCard])
+  }, [state.phase, state.pendingPurchase, portfolio, waiting, roll, endTurn, buy, pass, applyCard])
 
   return (
     <main className="app">
-      <Board game={game} pinned={pinned} onPin={setPinned} />
+      <Board game={game} pinned={pinned} onPin={setPinned} onExit={onExit} />
       <Sidebar game={game} onOpenPortfolio={setPortfolio} onExit={onExit} />
       {portfolio !== null && (
         <Portfolio
           state={state}
           playerId={portfolio}
+          canManage={game.myTurn}
           onClose={() => setPortfolio(null)}
           onOpenDeed={(index) => {
             setPortfolio(null)
