@@ -30,6 +30,8 @@ const ROBOT_CARD_MS = 2600
 const ROBOT_DECIDE_MS = 1300
 /** Deals stay on screen long enough to read before a robot answers */
 const ROBOT_DEAL_MS = 3200
+/** Time between robot bids, so an auction can be followed */
+const ROBOT_BID_MS = 1400
 /** Quiet period before a snapshot is written, so a run of hops becomes one save */
 const SAVE_DEBOUNCE_MS = 600
 /** How long to wait for a missing move before reloading the saved game */
@@ -47,6 +49,7 @@ function hookReducer(state: GameState, action: HookAction): GameState {
 const fallbacks = (): Action[] => [
   { type: 'applyCard' },
   { type: 'pass' },
+  { type: 'dropOut' },
   { type: 'declineTrade' },
   { type: 'roll', dice: rollDice() },
   { type: 'endTurn' },
@@ -139,10 +142,14 @@ export function useGame() {
           inbox.current = [...inbox.current, payload as Move].sort((a, b) => a.seq - b.seq)
           setInboxSize(inbox.current.length)
         })
-        .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'games', filter: `id=eq.${id}` }, ({ new: row }) => {
-          // Keep our version current so we can save when it's our turn
-          if (game.current && row.version > game.current.version) game.current.version = row.version
-        })
+        .on(
+          'postgres_changes',
+          { event: 'UPDATE', schema: 'public', table: 'games', filter: `id=eq.${id}` },
+          ({ new: row }) => {
+            // Keep our version current so we can save when it's our turn
+            if (game.current && row.version > game.current.version) game.current.version = row.version
+          },
+        )
         .on('presence', { event: 'sync' }, () => setPeers(new Set(Object.keys(channel.presenceState()))))
         .subscribe((status) => {
           if (status === 'SUBSCRIBED') {
@@ -314,13 +321,15 @@ export function useGame() {
     if (sync === 'loading' || !robotHere || inboxSize > 0) return
     const move = robotMove(state)
     if (!move) return
-    const pause = state.trade
-      ? ROBOT_DEAL_MS
-      : state.phase === 'card'
-        ? ROBOT_CARD_MS
-        : state.pendingPurchase !== null
-          ? ROBOT_DECIDE_MS
-          : ROBOT_MS
+    const pause = state.auction
+      ? ROBOT_BID_MS
+      : state.trade
+        ? ROBOT_DEAL_MS
+        : state.phase === 'card'
+          ? ROBOT_CARD_MS
+          : state.pendingPurchase !== null
+            ? ROBOT_DECIDE_MS
+            : ROBOT_MS
     const t = setTimeout(() => {
       // Never let a robot stall the game with a move the rules refuse
       const choice = [move, ...fallbacks()].find((a) => reducer(state, a) !== state)
@@ -351,6 +360,8 @@ export function useGame() {
   const cancelTrade = useCallback(() => act({ type: 'cancelTrade' }), [act])
   const borrow = useCallback((amount: number) => act({ type: 'borrow', amount }), [act])
   const repayLoan = useCallback((amount: number) => act({ type: 'repayLoan', amount }), [act])
+  const bid = useCallback((amount: number) => act({ type: 'bid', amount }), [act])
+  const dropOut = useCallback(() => act({ type: 'dropOut' }), [act])
 
   /** Rematch: same players and settings, fresh board (offline / pass-and-play only). */
   const newGame = useCallback(() => start(seatsOf(latest.current), latest.current.settings), [start])
@@ -384,6 +395,8 @@ export function useGame() {
     cancelTrade,
     borrow,
     repayLoan,
+    bid,
+    dropOut,
     controls,
     newGame,
   }

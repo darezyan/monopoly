@@ -17,6 +17,9 @@ export function useGameSounds(state: GameState) {
     if (before === state) return
 
     if (state.phase === 'over' && before.phase !== 'over') return sfx.win()
+    // Auctions: a gavel tap on each bid (a sale plays the buy stamp below)
+    if (state.auction && before.auction && state.auction.bid > before.auction.bid) return sfx.build()
+    if (state.auction && !before.auction) return sfx.card()
     // Deals: a whoosh when one is put on the table, a stamp when it goes through
     if (state.trade && !before.trade) return sfx.card()
     if (!state.trade && before.trade) {

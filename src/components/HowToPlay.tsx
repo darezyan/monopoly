@@ -51,7 +51,11 @@ function sections(settings: GameSettings): Section[] {
       title: 'Buying & rent',
       body: (
         <ul>
-          <li>Land on a property nobody owns and you can buy it, or pass.</li>
+          <li>
+            Land on a property nobody owns and you can buy it, or pass.
+            {settings.auctions &&
+              ' If you pass, it goes to auction: everyone takes turns raising the bid or dropping out, and the last one in wins.'}
+          </li>
           <li>Land on someone else’s property and you pay them rent. It happens automatically.</li>
           <li>
             Own a whole colour set and the rent on each property <b>doubles</b>.
@@ -92,8 +96,8 @@ function sections(settings: GameSettings): Section[] {
       title: 'Wahala & Ajo Box',
       body: (
         <p>
-          Land on one of these and pick a card. <b>Wahala</b> is chaos: LASTMA, traffic, NEPA. <b>Ajo Box</b> is
-          money: payouts, owambes, school fees. Read it and tap “Na so”.
+          Land on one of these and pick a card. <b>Wahala</b> is chaos: LASTMA, traffic, NEPA. <b>Ajo Box</b> is money:
+          payouts, owambes, school fees. Read it and tap “Na so”.
         </p>
       ),
     },
@@ -103,9 +107,7 @@ function sections(settings: GameSettings): Section[] {
       body: (
         <ul>
           <li>Land on “Go to Kirikiri”, draw that card, or roll three doubles, and you’re locked up.</li>
-          <li>
-            To get out, roll doubles (3 tries), pay {naira(settings.bail)} bail, or use a “You know person” card.
-          </li>
+          <li>To get out, roll doubles (3 tries), pay {naira(settings.bail)} bail, or use a “You know person” card.</li>
           <li>
             {settings.rentInJail
               ? 'You still collect rent while you’re inside.'

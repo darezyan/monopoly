@@ -11,6 +11,7 @@ import { GameOver } from './GameOver'
 import { ManageBar } from './ManageBar'
 import { Tokens } from './Tokens'
 import { TradeCard } from './TradeCard'
+import { AuctionCard } from './AuctionCard'
 
 type Props = {
   game: Game
@@ -62,7 +63,7 @@ export function Board({ game, pinned, onPin, onExit, onCounter }: Props) {
           </div>
 
           <div
-            className={`center__stage${shown !== null || state.drawn || state.trade || state.winner !== null ? ' is-dimmed' : ''}`}
+            className={`center__stage${shown !== null || state.drawn || state.trade || state.auction || state.winner !== null ? ' is-dimmed' : ''}`}
           >
             <div className="logo">
               <span className="logo__kicker">The Lagos property game</span>
@@ -80,6 +81,7 @@ export function Board({ game, pinned, onPin, onExit, onCounter }: Props) {
           {state.winner !== null && <GameOver game={game} onExit={onExit} />}
 
           {state.trade && <TradeCard game={game} onCounter={onCounter} />}
+          {state.auction && <AuctionCard game={game} />}
 
           {state.drawn && (
             <CardReveal
@@ -90,7 +92,7 @@ export function Board({ game, pinned, onPin, onExit, onCounter }: Props) {
             />
           )}
 
-          {shown !== null && shownTile && !state.drawn && !state.trade && state.winner === null && (
+          {shown !== null && shownTile && !state.drawn && !state.trade && !state.auction && state.winner === null && (
             <div className="center__deed" key={shown}>
               <DeedCard
                 tile={shownTile}

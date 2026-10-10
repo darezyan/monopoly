@@ -349,15 +349,19 @@ export function SettingsPanel({
         </div>
       )}
 
-      <div className="rule is-soon">
+      <label className="rule">
         <span className="rule__text">
-          <span className="rule__title">
-            Auctions <span className="mode__soon">Soon</span>
-          </span>
-          <span className="rule__desc">When someone passes on a property, everyone bids for it.</span>
+          <span className="rule__title">Auctions</span>
+          <span className="rule__desc">When someone passes on a property, everyone bids for it. Highest bid wins.</span>
         </span>
-        <input type="checkbox" className="switch" checked={false} disabled readOnly />
-      </div>
+        <input
+          type="checkbox"
+          className="switch"
+          checked={settings.auctions}
+          disabled={readOnly}
+          onChange={(e) => onChange({ ...settings, auctions: e.target.checked })}
+        />
+      </label>
     </section>
   )
 }

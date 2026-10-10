@@ -153,6 +153,24 @@ function TurnCard({ game, onOpenPortfolio, onOpenTrade, onOpenLoan, onExit }: Om
     )
   }
 
+  if (state.auction) {
+    const lot = BOARD[state.auction.index].name
+    return (
+      <section className="turn" style={{ '--token': player.color } as React.CSSProperties}>
+        <div className="turn__who">
+          <TokenDisc player={player} className="token-disc--lg" />
+          <div>
+            <span className="turn__kicker">Auction</span>
+            <h2 className="turn__name">{lot}</h2>
+          </div>
+        </div>
+        <p className="turn__status" aria-live="polite">
+          {player.name} passed on {lot}, so everyone can bid for it. Check the board.
+        </p>
+      </section>
+    )
+  }
+
   if (state.trade) {
     const t = state.trade
     return (
