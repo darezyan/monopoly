@@ -106,6 +106,8 @@ export type GameState = {
   /** Special rent from a "nearest hub / utility" card, applied on the next landing */
   cardRent: 'double' | 'utility10' | null
   winner: number | null
+  /** A deal waiting for an answer; play pauses until it's settled */
+  trade: Trade | null
   /** Count of player decisions applied so far; online clients use it to stay in step */
   seq: number
   /** Turn number, for grouping the history; goes up each time play passes to the next player */
@@ -129,6 +131,24 @@ export type Action =
   | { type: 'unmortgage'; index: number }
   | { type: 'declareBankruptcy' }
   | { type: 'endTurn' }
+  | { type: 'proposeTrade'; to: number; give: Bundle; get: Bundle }
+  | { type: 'counterTrade'; give: Bundle; get: Bundle }
+  | { type: 'acceptTrade' }
+  | { type: 'declineTrade' }
+  | { type: 'cancelTrade' }
+
+/** One side of a deal */
+export type Bundle = { deeds: number[]; cash: number; jailCards: number }
+
+export const EMPTY_BUNDLE: Bundle = { deeds: [], cash: 0, jailCards: 0 }
+
+/**
+ * A deal on the table. `proposer` offers `give` in exchange for `get`;
+ * `responder` must accept, decline or counter (which swaps the roles).
+ */
+export type Trade = { proposer: number; responder: number; give: Bundle; get: Bundle; counters: number }
+
+const TRADE_ACTIONS = new Set<Action['type']>(['counterTrade', 'acceptTrade', 'declineTrade', 'cancelTrade'])
 
 /** A seat at the table, as chosen on the setup screen */
 export type Seat = { name: string; token: TokenKind; robot: RobotLevel | null; userId?: string | null }
@@ -175,6 +195,7 @@ export function createGame(seats: Seat[] = DEFAULT_SEATS, settings: GameSettings
     moveDir: 1,
     cardRent: null,
     winner: null,
+    trade: null,
     seq: 0,
     turn: 1,
     events: [],
@@ -627,8 +648,128 @@ function declareBankruptcy(state: GameState): GameState {
   }
 }
 
+// ---------- Trading ----------
+
+/** The player whose decision the game is waiting on: a deal's responder, otherwise whoever's turn it is */
+export function actingPlayer(state: GameState): number {
+  return state.trade ? state.trade.responder : state.current
+}
+
+const isEmptyBundle = (b: Bundle) => b.deeds.length === 0 && b.cash === 0 && b.jailCards === 0
+
+/** Why a deed can't change hands right now, or null if it can. */
+export function deedTradeBlocker(state: GameState, index: number): string | null {
+  const tile = BOARD[index]
+  if (tile.kind === 'property' && groupIndexes(tile.group).some((i) => level(state, i) > 0))
+    return 'Sell the houses on this colour set first'
+  return null
+}
+
+/** Why a deal isn't valid, or null if it is. Checked when proposed and again when accepted. */
+export function tradeProblem(state: GameState, proposer: number, responder: number, give: Bundle, get: Bundle): string | null {
+  const a = state.players[proposer]
+  const b = state.players[responder]
+  if (!a || !b || proposer === responder) return 'Pick someone to trade with'
+  if (a.bankrupt || b.bankrupt) return 'That player is out of the game'
+  if (isEmptyBundle(give) && isEmptyBundle(get)) return 'Add something to the deal'
+  for (const [side, owner] of [
+    [give, a],
+    [get, b],
+  ] as const) {
+    if (new Set(side.deeds).size !== side.deeds.length) return 'A property is listed twice'
+    for (const i of side.deeds) {
+      if (state.owners[i] !== owner.id) return `${owner.name} doesn’t own ${BOARD[i].name}`
+      const blocker = deedTradeBlocker(state, i)
+      if (blocker) return `${BOARD[i].name}: ${blocker.toLowerCase()}`
+    }
+    if (!Number.isInteger(side.cash) || side.cash < 0) return 'Cash must be a whole amount'
+    if (side.cash > Math.max(0, owner.cash)) return `${owner.name} doesn’t have ${naira(side.cash)}`
+    if (side.jailCards < 0 || side.jailCards > owner.jailFree.length) return `${owner.name} doesn’t have that many jail cards`
+  }
+  return null
+}
+
+/** Mortgaged deeds that change hands cost the new owner 10% interest to the bank. */
+export const tradeInterest = (deeds: number[], state: GameState) =>
+  deeds
+    .filter((i) => state.mortgaged[i])
+    .reduce((sum, i) => sum + Math.ceil((BOARD[i] as BuyableTile).price / 20), 0)
+
+function describeBundle(b: Bundle): string {
+  const parts = b.deeds.map((i) => BOARD[i].name)
+  if (b.cash > 0) parts.push(naira(b.cash))
+  if (b.jailCards > 0) parts.push(b.jailCards === 1 ? 'a jail card' : `${b.jailCards} jail cards`)
+  return parts.length ? parts.join(', ') : 'nothing'
+}
+
+function executeTrade(state: GameState, t: Trade): GameState {
+  const { proposer: a, responder: b, give, get } = t
+  const owners = { ...state.owners }
+  for (const i of give.deeds) owners[i] = b
+  for (const i of get.deeds) owners[i] = a
+  state = { ...state, owners }
+
+  if (give.cash > 0) state = charge(state, a, give.cash, b)
+  if (get.cash > 0) state = charge(state, b, get.cash, a)
+
+  // Jail cards keep track of which deck they return to
+  const pa = state.players[a]
+  const pb = state.players[b]
+  const fromA = pa.jailFree.slice(0, give.jailCards)
+  const fromB = pb.jailFree.slice(0, get.jailCards)
+  state = updatePlayer(state, a, { jailFree: [...pa.jailFree.slice(give.jailCards), ...fromB] })
+  state = updatePlayer(state, b, { jailFree: [...pb.jailFree.slice(get.jailCards), ...fromA] })
+
+  const nameB = state.players[b].name
+  state = log(state, a, `traded with ${nameB}: gave ${describeBundle(give)}, got ${describeBundle(get)}`)
+
+  // Interest on mortgaged deeds received
+  const interestA = tradeInterest(get.deeds, state)
+  const interestB = tradeInterest(give.deeds, state)
+  if (interestA > 0) state = log(charge(state, a, interestA, 'bank'), a, 'paid interest on mortgaged deeds', -interestA)
+  if (interestB > 0) state = log(charge(state, b, interestB, 'bank'), b, 'paid interest on mortgaged deeds', -interestB)
+  return state
+}
+
+function tradeReducer(state: GameState, action: Action): GameState {
+  const t = state.trade
+  switch (action.type) {
+    case 'proposeTrade': {
+      if (t || (state.phase !== 'idle' && state.phase !== 'landed') || state.drawn) return state
+      if (tradeProblem(state, state.current, action.to, action.give, action.get)) return state
+      const trade: Trade = { proposer: state.current, responder: action.to, give: action.give, get: action.get, counters: 0 }
+      return log({ ...state, trade }, state.current, `offered ${state.players[action.to].name} a deal`)
+    }
+    case 'counterTrade': {
+      if (!t || t.counters >= 6) return state
+      // The responder becomes the proposer: they now give what they're offering back
+      if (tradeProblem(state, t.responder, t.proposer, action.give, action.get)) return state
+      const trade: Trade = { proposer: t.responder, responder: t.proposer, give: action.give, get: action.get, counters: t.counters + 1 }
+      return log({ ...state, trade }, t.responder, `came back with a counter-offer`)
+    }
+    case 'acceptTrade': {
+      if (!t) return state
+      if (tradeProblem(state, t.proposer, t.responder, t.give, t.get)) {
+        return log({ ...state, trade: null }, t.responder, 'couldn’t accept: the deal is no longer valid')
+      }
+      return executeTrade({ ...state, trade: null }, t)
+    }
+    case 'declineTrade':
+      if (!t) return state
+      return log({ ...state, trade: null }, t.responder, `turned down ${state.players[t.proposer].name}’s deal`)
+    case 'cancelTrade':
+      if (!t) return state
+      return log({ ...state, trade: null }, t.proposer, 'withdrew the offer')
+    default:
+      return state
+  }
+}
+
 export function reducer(state: GameState, action: Action): GameState {
   if (state.phase === 'over') return state
+  if (action.type === 'proposeTrade' || TRADE_ACTIONS.has(action.type)) return tradeReducer(state, action)
+  // Everything else waits while a deal is on the table
+  if (state.trade) return state
   const player = state.players[state.current]
 
   switch (action.type) {
@@ -789,5 +930,9 @@ export function reducer(state: GameState, action: Action): GameState {
         turn: state.turn + 1,
       }
     }
+
+    default:
+      // Trade actions are handled by tradeReducer above
+      return state
   }
 }
