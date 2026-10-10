@@ -59,7 +59,12 @@ const fallbacks = (): Action[] => [
 /** A decision sent between players in an online room, numbered so gaps can be spotted. */
 type Move = { seq: number; action: Action }
 
-type Online = { me: string; hostId: string; channel: ReturnType<NonNullable<typeof supabase>['channel']> }
+type Online = {
+  gameId: string
+  me: string
+  hostId: string
+  channel: ReturnType<NonNullable<typeof supabase>['channel']>
+}
 
 function setGameInUrl(id: string | null) {
   const url = new URL(location.href)
@@ -159,7 +164,7 @@ export function useGame() {
           }
         })
       channelRef.current = channel
-      setOnline({ me, hostId, channel })
+      setOnline({ gameId: id, me, hostId, channel })
     },
     [resync],
   )
@@ -372,7 +377,7 @@ export function useGame() {
     /** True when the player whose turn it is isn't controlled from this device */
     waiting: !myTurn && state.phase !== 'over',
     myTurn,
-    online: online ? { me: online.me, hostId: online.hostId, peers } : null,
+    online: online ? { gameId: online.gameId, me: online.me, hostId: online.hostId, peers } : null,
     start,
     open,
     leave,
