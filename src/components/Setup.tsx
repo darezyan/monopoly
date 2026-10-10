@@ -180,7 +180,7 @@ export function Setup({ mode, nickname, onBack, onStart }: Props) {
   )
 }
 
-function TokenPicker({
+export function TokenPicker({
   current,
   taken,
   onPick,
@@ -251,14 +251,27 @@ const TOGGLES: { key: ToggleKey; title: string; text: string }[] = [
   { key: 'shuffleOrder', title: 'Random turn order', text: 'Shuffle who goes first.' },
 ]
 
-function SettingsPanel({ settings, onChange }: { settings: GameSettings; onChange: (s: GameSettings) => void }) {
+export function SettingsPanel({
+  settings,
+  onChange,
+  readOnly = false,
+}: {
+  settings: GameSettings
+  onChange: (s: GameSettings) => void
+  /** Show the rules without letting this person change them (non-hosts in a room) */
+  readOnly?: boolean
+}) {
   return (
     <section className="panel">
       <div className="panel__head">
         <h2>House rules</h2>
-        <button className="panel__reset" onClick={() => onChange(DEFAULT_SETTINGS)}>
-          Reset
-        </button>
+        {readOnly ? (
+          <span className="panel__count">Host decides</span>
+        ) : (
+          <button className="panel__reset" onClick={() => onChange(DEFAULT_SETTINGS)}>
+            Reset
+          </button>
+        )}
       </div>
 
       <div className="rule">
@@ -273,6 +286,7 @@ function SettingsPanel({ settings, onChange }: { settings: GameSettings; onChang
               role="radio"
               aria-checked={settings.startingCash === cash}
               className={settings.startingCash === cash ? 'is-on' : undefined}
+              disabled={readOnly && settings.startingCash !== cash}
               onClick={() => onChange({ ...settings, startingCash: cash })}
             >
               {naira(cash)}
@@ -291,6 +305,7 @@ function SettingsPanel({ settings, onChange }: { settings: GameSettings; onChang
             type="checkbox"
             className="switch"
             checked={settings[t.key]}
+            disabled={readOnly}
             onChange={(e) => onChange({ ...settings, [t.key]: e.target.checked })}
           />
         </label>
