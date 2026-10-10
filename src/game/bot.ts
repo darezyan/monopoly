@@ -3,6 +3,8 @@ import type { RobotLevel } from '../data/tokens'
 import {
   actingPlayer,
   buildBlocker,
+  dealKey,
+  deedTradeBlocker,
   groupIndexes,
   isBuyable,
   level,
@@ -10,6 +12,7 @@ import {
   ownsGroup,
   rollDice,
   sellBlocker,
+  tradeProblem,
   unmortgageBlocker,
   unmortgageCost,
   type Action,
@@ -46,6 +49,12 @@ export function robotMove(state: GameState): Action | null {
 
   if (state.pendingPurchase !== null) {
     return wantsToBuy(state, state.pendingPurchase, skill, reserve) ? { type: 'buy' } : { type: 'pass' }
+  }
+
+  // Before rolling, look for a deal that completes one of our colour sets
+  if (state.phase === 'idle' && !state.rolledThisTurn) {
+    const deal = pickDeal(state, me.id, skill, reserve)
+    if (deal) return deal
   }
 
   if (skill !== 'easy') {
@@ -171,4 +180,54 @@ function judgeTrade(state: GameState, me: number, skill: RobotLevel): boolean {
   if (state.players[me].cash - gives.cash < 0) return false
   if (skill === 'easy') return gain >= loss * TRADE_BAR.easy || Math.random() < 0.15
   return gain >= loss * TRADE_BAR[skill]
+}
+
+/** How much over the asking price a robot offers: easy robots are generous, sharp ones haggle */
+const OFFER_PREMIUM: Record<RobotLevel, number> = { easy: 1.6, normal: 1.35, sharp: 1.15 }
+/** Rounds a robot waits between offers, so it doesn't pester anyone */
+const ROUNDS_BETWEEN_OFFERS = 2
+/** Each refusal raises the next offer for the same properties by this much */
+const RAISE_PER_REFUSAL = 0.2
+/** After this many refusals for the same properties, the robot stops asking */
+const MAX_REFUSALS = 3
+
+/**
+ * A deal that completes one of the robot's colour sets: the missing properties,
+ * all held by one other player, bought for cash at a premium that depends on difficulty.
+ */
+function pickDeal(state: GameState, me: number, skill: RobotLevel, reserve: number): Action | null {
+  const last = state.proposedOnTurn[me]
+  const active = state.players.filter((p) => !p.bankrupt).length
+  if (last !== undefined && state.turn - last < active * ROUNDS_BETWEEN_OFFERS) return null
+  const cash = state.players[me].cash
+
+  const seen = new Set<string>()
+  for (const tile of BOARD) {
+    if (tile.kind !== 'property' || seen.has(tile.group)) continue
+    seen.add(tile.group)
+    const group = groupIndexes(tile.group)
+    const mine = group.filter((i) => state.owners[i] === me)
+    const missing = group.filter((i) => state.owners[i] !== me)
+    // Worth chasing when we hold most of the set and one player has the rest
+    if (mine.length === 0 || missing.length === 0 || missing.length > 2 || mine.length < missing.length) continue
+    const holders = new Set(missing.map((i) => state.owners[i]))
+    if (holders.size !== 1) continue
+    const holder = [...holders][0]
+    if (holder === undefined || state.players[holder].bankrupt) continue
+    if (missing.some((i) => deedTradeBlocker(state, i))) continue
+
+    // Turned down before? Raise the offer each time, and give up after a few tries
+    const refused = state.refusals[dealKey(me, holder, missing)] ?? 0
+    if (refused >= MAX_REFUSALS) continue
+    const asking = missing.reduce((sum, i) => sum + (BOARD[i] as BuyableTile).price, 0)
+    const premium = OFFER_PREMIUM[skill] + refused * RAISE_PER_REFUSAL
+    const offer = Math.round((asking * premium) / 10) * 10
+    if (cash - offer < reserve) continue
+
+    const give = { deeds: [], cash: offer, jailCards: 0 }
+    const get = { deeds: missing, cash: 0, jailCards: 0 }
+    if (tradeProblem(state, me, holder, give, get)) continue
+    return { type: 'proposeTrade', to: holder, give, get }
+  }
+  return null
 }
