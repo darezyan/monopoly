@@ -44,6 +44,8 @@ export type Player = {
   color: string
   /** Robot difficulty, or null for a human */
   robot: RobotLevel | null
+  /** The signed-in user playing this seat in an online room (absent offline and for robots) */
+  userId?: string | null
   cash: number
   position: number
   inJail: boolean
@@ -99,6 +101,8 @@ export type GameState = {
   /** Special rent from a "nearest hub / utility" card, applied on the next landing */
   cardRent: 'double' | 'utility10' | null
   winner: number | null
+  /** Count of player decisions applied so far; online clients use it to stay in step */
+  seq: number
   events: GameEvent[]
   nextEventId: number
 }
@@ -120,7 +124,7 @@ export type Action =
   | { type: 'endTurn' }
 
 /** A seat at the table, as chosen on the setup screen */
-export type Seat = { name: string; token: TokenKind; robot: RobotLevel | null }
+export type Seat = { name: string; token: TokenKind; robot: RobotLevel | null; userId?: string | null }
 
 export const DEFAULT_SEATS: Seat[] = [
   { name: 'Tunde', token: 'danfo', robot: null },
@@ -164,6 +168,7 @@ export function createGame(seats: Seat[] = DEFAULT_SEATS, settings: GameSettings
     moveDir: 1,
     cardRent: null,
     winner: null,
+    seq: 0,
     events: [],
     nextEventId: 1,
   }
@@ -300,7 +305,16 @@ export function rentFor(state: GameState, index: number): number {
 export function seatsOf(state: GameState): Seat[] {
   return [...state.players]
     .sort((a, b) => a.id - b.id)
-    .map(({ name, token, robot }) => ({ name, token, robot }))
+    .map(({ name, token, robot, userId }) => ({ name, token, robot, userId }))
+}
+
+/** Timer-driven steps that follow automatically from a player's decision */
+export const isTick = (a: Action) => a.type === 'startMove' || a.type === 'step'
+
+/** Applies an action and, for player decisions, counts it in `seq`. */
+export function applyAction(state: GameState, action: Action): GameState {
+  const next = reducer(state, action)
+  return next === state || isTick(action) ? next : { ...next, seq: state.seq + 1 }
 }
 
 /** Whether the current player may manage their properties right now. */
