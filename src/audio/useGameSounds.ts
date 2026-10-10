@@ -17,6 +17,12 @@ export function useGameSounds(state: GameState) {
     if (before === state) return
 
     if (state.phase === 'over' && before.phase !== 'over') return sfx.win()
+    // Deals: a whoosh when one is put on the table, a stamp when it goes through
+    if (state.trade && !before.trade) return sfx.card()
+    if (!state.trade && before.trade) {
+      const changed = Object.keys(state.owners).some((i) => state.owners[+i] !== before.owners[+i])
+      return changed || state.players.some((p, i) => p.cash !== before.players[i]?.cash) ? sfx.buy() : sfx.click()
+    }
     if (state.players.filter((p) => p.bankrupt).length > before.players.filter((p) => p.bankrupt).length)
       return sfx.bankrupt()
     if (state.players.some((p, i) => p.inJail && !before.players[i]?.inJail)) return sfx.jail()

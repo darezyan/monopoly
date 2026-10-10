@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { Building2, KeyRound, Lock, X } from 'lucide-react'
+import { ArrowLeftRight, Building2, KeyRound, Lock, X } from 'lucide-react'
 import { BOARD, GROUP_COLORS, naira, type ColorGroup } from '../data/board'
 import { HOTEL, buildingsOf, isBuyable, level, netWorth, ownsGroup, type GameState } from '../game/game'
 import { TOKEN_LABELS, TokenDisc } from './Token'
@@ -37,9 +37,11 @@ type Props = {
   onOpenDeed: (index: number) => void
   /** Whether this device may build and mortgage for the current player */
   canManage: boolean
+  /** Offer this player a deal (only when the current player can trade) */
+  onTrade?: () => void
 }
 
-export function Portfolio({ state, playerId, onClose, onOpenDeed, canManage }: Props) {
+export function Portfolio({ state, playerId, onClose, onOpenDeed, canManage, onTrade }: Props) {
   const player = state.players[playerId]
   const mine = playerId === state.current && canManage
   const owned = BOARD.filter((_, i) => state.owners[i] === playerId).length
@@ -110,11 +112,15 @@ export function Portfolio({ state, playerId, onClose, onOpenDeed, canManage }: P
         </dl>
 
         {mine && !player.bankrupt && <p className="sheet__tip">Tap one of your deeds to build, sell or mortgage.</p>}
+        {onTrade && !player.bankrupt && playerId !== state.current && (
+          <button className="turn__btn sheet__trade" onClick={onTrade}>
+            <ArrowLeftRight size={18} /> Propose a deal to {player.name}
+          </button>
+        )}
 
         <div className="sheet__sets">
           {ROWS.map((row) => {
-            const complete =
-              row.key in GROUP_COLORS && ownsGroup(state, playerId, row.key as ColorGroup)
+            const complete = row.key in GROUP_COLORS && ownsGroup(state, playerId, row.key as ColorGroup)
             return (
               <div key={row.key} className={`set${complete ? ' is-complete' : ''}`}>
                 <span
@@ -158,9 +164,7 @@ export function Portfolio({ state, playerId, onClose, onOpenDeed, canManage }: P
                                 ? naira(tile.price)
                                 : 'Unowned'}
                         </span>
-                        {otherOwner && (
-                          <span className="mini__owner" style={{ background: otherOwner.color }} />
-                        )}
+                        {otherOwner && <span className="mini__owner" style={{ background: otherOwner.color }} />}
                       </button>
                     )
                   })}

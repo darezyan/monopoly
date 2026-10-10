@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import {
   AlertTriangle,
   ArrowLeft,
+  ArrowLeftRight,
   Bot,
   ChevronRight,
   Dices,
@@ -21,10 +22,12 @@ type Props = {
   game: Game
   onOpenPortfolio: (playerId: number) => void
   onOpenHistory: () => void
+  /** Open the deal builder, optionally with a partner picked */
+  onOpenTrade: (partner?: number) => void
   onExit: () => void
 }
 
-export function Sidebar({ game, onOpenPortfolio, onOpenHistory, onExit }: Props) {
+export function Sidebar({ game, onOpenPortfolio, onOpenHistory, onOpenTrade, onExit }: Props) {
   const { state } = game
   return (
     <aside className="sidebar">
@@ -35,7 +38,7 @@ export function Sidebar({ game, onOpenPortfolio, onOpenHistory, onExit }: Props)
         <SyncBadge sync={game.sync} />
         <TopControls settings={state.settings} />
       </div>
-      <TurnCard game={game} onOpenPortfolio={onOpenPortfolio} onExit={onExit} />
+      <TurnCard game={game} onOpenPortfolio={onOpenPortfolio} onOpenTrade={onOpenTrade} onExit={onExit} />
       <div className={`players${state.players.length > 4 ? ' players--compact' : ''}`}>
         {state.players.map((p) => (
           <PlayerCard
@@ -101,7 +104,7 @@ function statusText(state: GameState): string {
   }
 }
 
-function TurnCard({ game, onOpenPortfolio, onExit }: Omit<Props, 'onOpenHistory'>) {
+function TurnCard({ game, onOpenPortfolio, onOpenTrade, onExit }: Omit<Props, 'onOpenHistory'>) {
   const { state, sync } = game
   const player = state.players[state.current]
   const busy = state.phase === 'rolling' || state.phase === 'moving' || sync === 'loading'
@@ -129,6 +132,24 @@ function TurnCard({ game, onOpenPortfolio, onExit }: Omit<Props, 'onOpenHistory'
             Play again
           </button>
         )}
+      </section>
+    )
+  }
+
+  if (state.trade) {
+    const t = state.trade
+    return (
+      <section className="turn" style={{ '--token': player.color } as React.CSSProperties}>
+        <div className="turn__who">
+          <TokenDisc player={player} className="token-disc--lg" />
+          <div>
+            <span className="turn__kicker">Making a deal</span>
+            <h2 className="turn__name">{player.name}</h2>
+          </div>
+        </div>
+        <p className="turn__status" aria-live="polite">
+          {state.players[t.proposer].name} offered {state.players[t.responder].name} a deal. Check the board.
+        </p>
       </section>
     )
   }
@@ -200,13 +221,35 @@ function TurnCard({ game, onOpenPortfolio, onExit }: Omit<Props, 'onOpenHistory'
           )}
         </>
       )}
-      {ownsSomething && !inDebt && game.myTurn && (
-        <button className="turn__link" onClick={() => onOpenPortfolio(player.id)}>
-          <LayoutGrid size={15} /> Your properties
-          <ChevronRight size={15} />
-        </button>
+      {game.myTurn && (ownsSomething || canTrade(game)) && (
+        <div className="turn__links">
+          {ownsSomething && !inDebt && (
+            <button className="turn__link" onClick={() => onOpenPortfolio(player.id)}>
+              <LayoutGrid size={15} /> Your properties
+              <ChevronRight size={15} />
+            </button>
+          )}
+          {canTrade(game) && (
+            <button className="turn__link" onClick={() => onOpenTrade()}>
+              <ArrowLeftRight size={15} /> Make a deal
+              <ChevronRight size={15} />
+            </button>
+          )}
+        </div>
       )}
     </section>
+  )
+}
+
+/** Whether the current player can open a deal right now (from this device) */
+export function canTrade(game: Game): boolean {
+  const { state } = game
+  return (
+    !state.trade &&
+    !state.drawn &&
+    (state.phase === 'idle' || state.phase === 'landed') &&
+    game.controls(state.current) &&
+    state.players.some((p) => p.id !== state.current && !p.bankrupt)
   )
 }
 

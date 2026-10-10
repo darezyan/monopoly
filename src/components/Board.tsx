@@ -10,6 +10,7 @@ import { Dice } from './Dice'
 import { GameOver } from './GameOver'
 import { ManageBar } from './ManageBar'
 import { Tokens } from './Tokens'
+import { TradeCard } from './TradeCard'
 
 type Props = {
   game: Game
@@ -17,9 +18,11 @@ type Props = {
   pinned: number | null
   onPin: (index: number | null) => void
   onExit: () => void
+  /** The responder wants to counter: open the deal builder */
+  onCounter: () => void
 }
 
-export function Board({ game, pinned, onPin, onExit }: Props) {
+export function Board({ game, pinned, onPin, onExit, onCounter }: Props) {
   const { state } = game
   const [hovered, setHovered] = useState<number | null>(null)
   const shown = hovered ?? pinned ?? state.pendingPurchase
@@ -28,8 +31,7 @@ export function Board({ game, pinned, onPin, onExit }: Props) {
   const ownerOf = (i: number) => (state.owners[i] === undefined ? undefined : state.players[state.owners[i]])
   const shownTile = shown === null ? null : BOARD[shown]
   // Management buttons only make sense on the current player's own deed, once it's pinned open
-  const canManage =
-    shown !== null && shown === pinned && state.owners[shown] === state.current && game.myTurn
+  const canManage = shown !== null && shown === pinned && state.owners[shown] === state.current && game.myTurn
 
   return (
     <div className="board-wrap">
@@ -59,7 +61,9 @@ export function Board({ game, pinned, onPin, onExit }: Props) {
             <span>Wahala</span>
           </div>
 
-          <div className={`center__stage${shown !== null || state.drawn || state.winner !== null ? ' is-dimmed' : ''}`}>
+          <div
+            className={`center__stage${shown !== null || state.drawn || state.trade || state.winner !== null ? ' is-dimmed' : ''}`}
+          >
             <div className="logo">
               <span className="logo__kicker">The Lagos property game</span>
               <h1 className="logo__word">
@@ -75,6 +79,8 @@ export function Board({ game, pinned, onPin, onExit }: Props) {
 
           {state.winner !== null && <GameOver game={game} onExit={onExit} />}
 
+          {state.trade && <TradeCard game={game} onCounter={onCounter} />}
+
           {state.drawn && (
             <CardReveal
               key={state.events[0]?.id}
@@ -84,7 +90,7 @@ export function Board({ game, pinned, onPin, onExit }: Props) {
             />
           )}
 
-          {shown !== null && shownTile && !state.drawn && state.winner === null && (
+          {shown !== null && shownTile && !state.drawn && !state.trade && state.winner === null && (
             <div className="center__deed" key={shown}>
               <DeedCard
                 tile={shownTile}
