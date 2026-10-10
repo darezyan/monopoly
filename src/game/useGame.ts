@@ -28,6 +28,8 @@ const ROBOT_MS = 750
 const ROBOT_CARD_MS = 2600
 /** And think a little before buying or passing */
 const ROBOT_DECIDE_MS = 1300
+/** Deals stay on screen long enough to read before a robot answers */
+const ROBOT_DEAL_MS = 3200
 /** Quiet period before a snapshot is written, so a run of hops becomes one save */
 const SAVE_DEBOUNCE_MS = 600
 /** How long to wait for a missing move before reloading the saved game */
@@ -42,9 +44,11 @@ function hookReducer(state: GameState, action: HookAction): GameState {
 }
 
 /** Moves a robot can always fall back on if its chosen move isn't allowed. */
-const FALLBACKS: Action[] = [
+const fallbacks = (): Action[] => [
   { type: 'applyCard' },
   { type: 'pass' },
+  { type: 'declineTrade' },
+  { type: 'roll', dice: rollDice() },
   { type: 'endTurn' },
   { type: 'declareBankruptcy' },
 ]
@@ -310,11 +314,16 @@ export function useGame() {
     if (sync === 'loading' || !robotHere || inboxSize > 0) return
     const move = robotMove(state)
     if (!move) return
-    const pause =
-      state.phase === 'card' ? ROBOT_CARD_MS : state.pendingPurchase !== null ? ROBOT_DECIDE_MS : ROBOT_MS
+    const pause = state.trade
+      ? ROBOT_DEAL_MS
+      : state.phase === 'card'
+        ? ROBOT_CARD_MS
+        : state.pendingPurchase !== null
+          ? ROBOT_DECIDE_MS
+          : ROBOT_MS
     const t = setTimeout(() => {
       // Never let a robot stall the game with a move the rules refuse
-      const choice = [move, ...FALLBACKS].find((a) => reducer(state, a) !== state)
+      const choice = [move, ...fallbacks()].find((a) => reducer(state, a) !== state)
       if (choice) act(choice)
     }, pause * pace)
     return () => clearTimeout(t)
