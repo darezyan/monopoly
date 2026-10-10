@@ -4,16 +4,19 @@ import { tokenInfo, type RobotLevel } from '../data/tokens'
 import { useRoom } from '../game/useRoom'
 import { SettingsPanel, TokenPicker } from './Setup'
 import { TokenDisc } from './Token'
+import { VoiceDock } from './VoiceDock'
+import type { Voice } from '../voice/useVoice'
 
 const SEATS = 8
 
 type Props = {
   gameId: string
+  voice: Voice
   onLeave: () => void
   onStarted: () => void
 }
 
-export function Room({ gameId, onLeave, onStarted }: Props) {
+export function Room({ gameId, voice, onLeave, onStarted }: Props) {
   const room = useRoom(gameId, onStarted)
   const [picking, setPicking] = useState(false)
   const [copied, setCopied] = useState(false)
@@ -101,6 +104,13 @@ export function Room({ gameId, onLeave, onStarted }: Props) {
 
       {room.error && <p className="home__notice">{room.error}</p>}
 
+      <VoiceDock
+        voice={voice}
+        people={seats.flatMap((s) =>
+          s.userId && !s.robot ? [{ id: s.userId, name: s.nickname, token: s.token, color: tokenInfo(s.token).color }] : [],
+        )}
+      />
+
       <section className="panel">
         <div className="panel__head">
           <h2>Players</h2>
@@ -118,7 +128,7 @@ export function Room({ gameId, onLeave, onStarted }: Props) {
               <li key={i} className={`seat${mine ? ' seat--me' : ''}`}>
                 <div className="seat__token">
                   <button
-                    className="seat__token-btn"
+                    className={`seat__token-btn${seat.userId && voice.speaking.has(seat.userId) ? ' is-talking' : ''}`}
                     disabled={!mine}
                     onClick={() => setPicking(!picking)}
                     aria-label={mine ? 'Change your token' : tokenInfo(seat.token).label}

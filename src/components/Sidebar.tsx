@@ -16,6 +16,8 @@ import {
 import { BOARD, GROUP_COLORS, naira, type Tile } from '../data/board'
 import type { Game, SyncStatus } from '../game/useGame'
 import { TopControls } from './TopControls'
+import { VoiceDock } from './VoiceDock'
+import type { Voice } from '../voice/useVoice'
 import {
   DECK_NAMES,
   LOAN_LAPS,
@@ -29,6 +31,7 @@ import { TOKEN_LABELS, TokenDisc, inkFor } from './Token'
 
 type Props = {
   game: Game
+  voice: Voice
   onOpenPortfolio: (playerId: number) => void
   onOpenHistory: () => void
   /** Open the deal builder, optionally with a partner picked */
@@ -38,7 +41,7 @@ type Props = {
   onExit: () => void
 }
 
-export function Sidebar({ game, onOpenPortfolio, onOpenHistory, onOpenTrade, onOpenLoan, onExit }: Props) {
+export function Sidebar({ game, voice, onOpenPortfolio, onOpenHistory, onOpenTrade, onOpenLoan, onExit }: Props) {
   const { state } = game
   return (
     <aside className="sidebar">
@@ -49,6 +52,14 @@ export function Sidebar({ game, onOpenPortfolio, onOpenHistory, onOpenTrade, onO
         <SyncBadge sync={game.sync} />
         <TopControls settings={state.settings} />
       </div>
+      {game.online && (
+        <VoiceDock
+          voice={voice}
+          people={state.players.flatMap((p) =>
+            p.userId && !p.robot ? [{ id: p.userId, name: p.name, token: p.token, color: p.color }] : [],
+          )}
+        />
+      )}
       <TurnCard
         game={game}
         onOpenPortfolio={onOpenPortfolio}
@@ -65,6 +76,7 @@ export function Sidebar({ game, onOpenPortfolio, onOpenHistory, onOpenTrade, onO
             state={state}
             presence={!game.online || !p.userId ? null : game.online.peers.has(p.userId)}
             isMe={!!game.online && p.userId === game.online.me}
+            talking={!!p.userId && voice.speaking.has(p.userId)}
             onOpen={() => onOpenPortfolio(p.id)}
           />
         ))}
@@ -121,7 +133,7 @@ function statusText(state: GameState): string {
   }
 }
 
-function TurnCard({ game, onOpenPortfolio, onOpenTrade, onOpenLoan, onExit }: Omit<Props, 'onOpenHistory'>) {
+function TurnCard({ game, onOpenPortfolio, onOpenTrade, onOpenLoan, onExit }: Omit<Props, 'onOpenHistory' | 'voice'>) {
   const { state, sync } = game
   const player = state.players[state.current]
   const busy = state.phase === 'rolling' || state.phase === 'moving' || sync === 'loading'
@@ -404,10 +416,12 @@ type PlayerCardProps = {
   /** Online games: whether this human is connected right now (null when not applicable) */
   presence: boolean | null
   isMe: boolean
+  /** Speaking in voice chat right now */
+  talking: boolean
   onOpen: () => void
 }
 
-function PlayerCard({ player, active, state, presence, isMe, onOpen }: PlayerCardProps) {
+function PlayerCard({ player, active, state, presence, isMe, talking, onOpen }: PlayerCardProps) {
   const shown = useAnimatedNumber(player.cash)
   // Latest money event for this player drives the floating +/− badge
   const lastMoney = state.events.find((e) => e.playerId === player.id && e.amount !== undefined)
@@ -420,7 +434,7 @@ function PlayerCard({ player, active, state, presence, isMe, onOpen }: PlayerCar
       onClick={onOpen}
       aria-label={`${player.name}: see properties`}
     >
-      <span className="player__avatar">
+      <span className={`player__avatar${talking ? ' is-talking' : ''}`}>
         <TokenDisc player={player} />
         {presence !== null && (
           <span className={`player__presence${presence ? ' is-on' : ''}`} title={presence ? 'Online' : 'Away'} />

@@ -4803,3 +4803,376 @@ body {
     flex-basis: 100%;
   }
 }
+
+/* ---------- Voice chat ---------- */
+
+.voice {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid rgb(255 255 255 / 0.12);
+  border-radius: 18px;
+  background: rgb(255 255 255 / 0.06);
+  color: #f4efe2;
+}
+
+.voice--quiet {
+  gap: 8px;
+  padding: 9px 14px;
+  font-size: 13px;
+  color: rgb(244 239 226 / 0.6);
+}
+
+.voice__mic {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 36px;
+  padding: 0 14px 0 12px;
+  border: 1px solid rgb(255 255 255 / 0.14);
+  border-radius: 99px;
+  background: rgb(255 255 255 / 0.08);
+  color: #ff8a7a;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  transition: background 120ms ease, color 120ms ease, box-shadow 160ms ease;
+}
+
+.voice__mic span {
+  color: #f4efe2;
+}
+
+.voice__mic kbd {
+  display: inline-grid;
+  place-items: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  border-radius: 6px;
+  background: rgb(255 255 255 / 0.14);
+  color: #f4efe2;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.voice__mic:hover:not(:disabled) {
+  background: rgb(255 255 255 / 0.16);
+}
+
+.voice__mic.is-on {
+  border-color: transparent;
+  background: #1e9b57;
+  color: #fff;
+}
+
+.voice__mic.is-on span {
+  color: #fff;
+}
+
+.voice__mic.is-on:hover:not(:disabled) {
+  background: #178a4b;
+}
+
+.voice__mic.is-speaking {
+  box-shadow: 0 0 0 3px rgb(61 220 132 / 0.45);
+}
+
+.voice__mic:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.voice__mic:focus-visible,
+.voice__retry:focus-visible,
+.voice__unblock:focus-visible,
+.voice__mute:focus-visible {
+  outline: 3px solid var(--danfo);
+  outline-offset: 2px;
+}
+
+.voice__deafen.is-off {
+  color: #ff8a7a;
+}
+
+.voice__deafen:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.voice__faces {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  padding: 0 0 0 4px;
+  list-style: none;
+}
+
+.voice__faces li + li {
+  margin-left: -6px;
+}
+
+.voice__faces li {
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px var(--indigo);
+}
+
+.voice__faces .voice__face {
+  width: 26px;
+  height: 26px;
+}
+
+.voice__faces li.is-speaking {
+  position: relative;
+  z-index: 1;
+  box-shadow: 0 0 0 2px var(--indigo), 0 0 0 4px #3ddc84;
+}
+
+.voice__faces li.voice__count {
+  margin-left: 8px;
+  box-shadow: none;
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  color: rgb(244 239 226 / 0.7);
+}
+
+.voice__more {
+  position: relative;
+}
+
+.voice__retry,
+.voice__unblock {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border: 0;
+  border-radius: 99px;
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.voice__retry {
+  background: rgb(255 255 255 / 0.1);
+  color: #f4efe2;
+}
+
+.voice__unblock {
+  flex-basis: 100%;
+  justify-content: center;
+  background: var(--danfo);
+  color: var(--ink);
+  animation: pulse 1.6s ease-in-out infinite;
+}
+
+.voice__error {
+  flex-basis: 100%;
+  margin: 0;
+  padding: 0 6px 2px;
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: #ffb4a8;
+}
+
+/* In the lobby, spaced like the room code card above it */
+.room > .voice {
+  margin-bottom: 16px;
+}
+
+/* Settings panel */
+
+.voice__panel {
+  width: 300px;
+}
+
+.voice__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 0 12px;
+  cursor: pointer;
+}
+
+.voice__row b {
+  display: block;
+  font-size: 14px;
+}
+
+.voice__row small {
+  display: block;
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+
+.voice__slider {
+  display: grid;
+  grid-template-columns: 18px 92px 1fr;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.voice__slider input {
+  width: 100%;
+  accent-color: #1e9b57;
+}
+
+.voice__heading {
+  display: block;
+  margin: 12px 0 6px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.voice__people {
+  display: grid;
+  gap: 4px;
+  max-height: 240px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.voice__people li {
+  display: grid;
+  grid-template-columns: 30px 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 4px;
+}
+
+.voice__people li.is-away {
+  opacity: 0.5;
+}
+
+.voice__person {
+  display: block;
+  border-radius: 50%;
+  transition: box-shadow 140ms ease;
+}
+
+.voice__person.is-speaking {
+  box-shadow: 0 0 0 2px var(--paper), 0 0 0 4px #1e9b57;
+}
+
+.voice__people .voice__face {
+  width: 30px;
+  height: 30px;
+}
+
+.voice__name {
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.voice__name small {
+  font-weight: 500;
+  color: var(--ink-soft);
+}
+
+.voice__name small:last-child {
+  display: block;
+  font-size: 12px;
+}
+
+.voice__mute {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 10px;
+  border: 1.5px solid rgb(28 26 22 / 0.14);
+  border-radius: 99px;
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.voice__mute.is-muted {
+  border-color: transparent;
+  background: var(--red);
+  color: #fff;
+}
+
+/* Speaking ring on player cards and lobby seats, in the player's colour */
+
+.player__avatar.is-talking .token-disc {
+  animation: talking 900ms ease-in-out infinite;
+}
+
+@keyframes talking {
+  0%,
+  100% {
+    box-shadow: 0 0 0 2px var(--indigo), 0 0 0 4px #3ddc84;
+  }
+  50% {
+    box-shadow: 0 0 0 2px var(--indigo), 0 0 0 7px rgb(61 220 132 / 0.55);
+  }
+}
+
+.seat__token-btn.is-talking .token-disc {
+  animation: talking-light 900ms ease-in-out infinite;
+}
+
+@keyframes talking-light {
+  0%,
+  100% {
+    box-shadow: 0 0 0 2px #fff, 0 0 0 4px #1e9b57;
+  }
+  50% {
+    box-shadow: 0 0 0 2px #fff, 0 0 0 7px rgb(30 155 87 / 0.45);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .player__avatar.is-talking .token-disc,
+  .seat__token-btn.is-talking .token-disc,
+  .voice__unblock {
+    animation: none;
+  }
+
+  .player__avatar.is-talking .token-disc {
+    box-shadow: 0 0 0 2px var(--indigo), 0 0 0 4px #3ddc84;
+  }
+}
+
+@media (max-width: 560px) {
+  .voice__panel {
+    position: fixed;
+    top: auto;
+    right: 12px;
+    bottom: 12px;
+    left: 12px;
+    width: auto;
+  }
+
+  .voice__mic span {
+    font-size: 13px;
+  }
+}

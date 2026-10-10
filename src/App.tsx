@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { installAudioUnlock, startMusic } from './audio/sound'
 import { useGameSounds } from './audio/useGameSounds'
 import { Board } from './components/Board'
@@ -15,6 +15,7 @@ import { TradeBuilder } from './components/TradeBuilder'
 import { DEFAULT_SETTINGS } from './game/game'
 import { createRoom, loadGameRow } from './game/persistence'
 import { useGame } from './game/useGame'
+import { useVoice, type Voice } from './voice/useVoice'
 
 type Screen =
   | { name: 'home' }
@@ -22,7 +23,8 @@ type Screen =
   | { name: 'join'; code?: string }
   | { name: 'room'; gameId: string }
   | { name: 'game' }
-  | { name: 'loading' }
+  /** Opening a game or room; the id keeps its voice call going through the switch */
+  | { name: 'loading'; gameId?: string }
 
 const NICKNAME_KEY = 'eko:nickname'
 
@@ -54,6 +56,18 @@ export function App() {
   )
   const [notice, setNotice] = useState<string | null>(null)
   const [nickname, setNickname] = useState(readNickname)
+  // Voice runs from the lobby right through the game, for online rooms only
+  const voiceId = useRef<string | null>(null)
+  voiceId.current =
+    screen.name === 'room'
+      ? screen.gameId
+      : screen.name === 'game'
+        ? (game.online?.gameId ?? null)
+        : // Stay in the call while the same room loads into its game
+          screen.name === 'loading' && screen.gameId === voiceId.current
+          ? voiceId.current
+          : null
+  const voice = useVoice(voiceId.current)
 
   const saveNickname = (name: string) => {
     setNickname(name)
@@ -71,14 +85,14 @@ export function App() {
   }
 
   const openGame = async (id: string) => {
-    setScreen({ name: 'loading' })
+    setScreen({ name: 'loading', gameId: id })
     if (await game.open(id)) return setScreen({ name: 'game' })
     goHome('That game couldn’t be opened. It may belong to another device.')
   }
 
   /** A room you're seated in: its lobby while waiting, the game once it has started. */
   const openRoom = async (id: string) => {
-    setScreen({ name: 'loading' })
+    setScreen({ name: 'loading', gameId: id })
     try {
       const row = await loadGameRow(id)
       if (!row) return goHome('That room couldn’t be found.')
@@ -171,13 +185,14 @@ export function App() {
       return (
         <>
           <TopControls />
-          <Room gameId={screen.gameId} onLeave={() => goHome()} onStarted={() => openGame(screen.gameId)} />
+          <Room gameId={screen.gameId} voice={voice} onLeave={() => goHome()} onStarted={() => openGame(screen.gameId)} />
         </>
       )
     case 'game':
       return (
         <GameScreen
           game={game}
+          voice={voice}
           onExit={() => {
             game.leave()
             goHome()
@@ -187,7 +202,7 @@ export function App() {
   }
 }
 
-function GameScreen({ game, onExit }: { game: ReturnType<typeof useGame>; onExit: () => void }) {
+function GameScreen({ game, voice, onExit }: { game: ReturnType<typeof useGame>; voice: Voice; onExit: () => void }) {
   const { state, roll, endTurn, buy, pass, applyCard, waiting } = game
   const [pinned, setPinned] = useState<number | null>(null)
   const [portfolio, setPortfolio] = useState<number | null>(null)
@@ -233,6 +248,7 @@ function GameScreen({ game, onExit }: { game: ReturnType<typeof useGame>; onExit
       />
       <Sidebar
         game={game}
+        voice={voice}
         onOpenPortfolio={setPortfolio}
         onOpenHistory={() => setHistory(true)}
         onOpenTrade={(partner) => setDeal({ partner })}
