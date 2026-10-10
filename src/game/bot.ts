@@ -19,6 +19,7 @@ import {
   type Bundle,
   type BuyableTile,
   type GameState,
+  type Persona,
 } from './game'
 
 /** Cash a robot tries to keep in hand after buying or building. */
@@ -33,7 +34,7 @@ export function robotMove(state: GameState): Action | null {
   if (state.trade) {
     const responder = state.players[actingPlayer(state)]
     if (!responder.robot) return null
-    return judgeTrade(state, responder.id, responder.robot) ? { type: 'acceptTrade' } : { type: 'declineTrade' }
+    return respondToDeal(state, responder.id)
   }
 
   const me = state.players[state.current]
@@ -53,7 +54,7 @@ export function robotMove(state: GameState): Action | null {
 
   // Before rolling, look for a deal that completes one of our colour sets
   if (state.phase === 'idle' && !state.rolledThisTurn) {
-    const deal = pickDeal(state, me.id, skill, reserve)
+    const deal = pickDeal(state, me.id)
     if (deal) return deal
   }
 
@@ -142,64 +143,128 @@ function raiseMoney(state: GameState): Action | null {
   return null
 }
 
-/** How much better than even a deal must look before a robot says yes */
-const TRADE_BAR: Record<RobotLevel, number> = { easy: 0.9, normal: 1.1, sharp: 1.25 }
-const JAIL_CARD_VALUE = 50
+// ---------- Deals ----------
+// Robots value properties by what they'd do for them, carry a personality rolled at the start
+// of the game, and add a little randomness, so their dealing feels human rather than scripted.
 
-/** What a deed is worth to `holder`: its price, plus a lot more if it completes their colour set. */
-function deedWorth(state: GameState, index: number, holder: number, owningAfter: Record<number, number>): number {
+const JAIL_CARD_VALUE = 50
+/** Most counter-offers a robot will make in one negotiation before walking away */
+const MAX_COUNTERS = 5
+
+/** How erratic each difficulty is: easy robots are all over the place, sharp ones steady */
+const NOISE: Record<RobotLevel, number> = { easy: 0.22, normal: 0.12, sharp: 0.06 }
+
+const MID_PERSONA: Record<RobotLevel, Persona> = {
+  easy: { greed: 0.2, eagerness: 0.75, patience: 0.3, caution: 0.2 },
+  normal: { greed: 0.4, eagerness: 0.55, patience: 0.55, caution: 0.45 },
+  sharp: { greed: 0.7, eagerness: 0.5, patience: 0.75, caution: 0.55 },
+}
+
+const personaOf = (state: GameState, id: number): Persona => {
+  const p = state.players[id]
+  return p.persona ?? MID_PERSONA[p.robot ?? 'normal']
+}
+
+/** A random factor around 1, e.g. jitter(0.1) is somewhere between 0.9 and 1.1 */
+const jitter = (spread: number) => 1 + (Math.random() * 2 - 1) * spread
+const roundTo10 = (n: number) => Math.max(0, Math.round(n / 10) * 10)
+
+/**
+ * What a deed is worth to `holder` if the board were owned as in `owners`:
+ * a set-completer is worth far more than its price, and so is one that blocks a rival's set.
+ */
+function valueTo(state: GameState, index: number, holder: number, owners: Record<number, number>): number {
   const tile = BOARD[index] as BuyableTile
-  let worth = state.mortgaged[index] ? tile.price / 2 : tile.price
+  const base = state.mortgaged[index] ? tile.price / 2 : tile.price
   if (tile.kind === 'property') {
     const group = groupIndexes(tile.group)
-    const owned = group.filter((i) => owningAfter[i] === holder).length
-    if (owned === group.length) worth *= 2.5
-    else if (owned > 1) worth *= 1.3
+    const mine = group.filter((i) => owners[i] === holder).length
+    // Full set: rent doubles and houses become possible, so it's worth a lot (more for big rents)
+    if (mine === group.length) return base * (2.2 + tile.rent[3] / tile.price / 4)
+    if (mine >= 2) return base * 1.4
+    const others = group.filter((i) => i !== index && owners[i] !== undefined && owners[i] !== holder)
+    const oneRival = others.length === group.length - 1 && new Set(others.map((i) => owners[i])).size === 1
+    // Holding the last piece of someone else's set has value of its own
+    return oneRival ? base * 1.5 : base
   }
-  return worth
+  const same = BOARD.filter((t, i) => t.kind === tile.kind && owners[i] === holder).length
+  return tile.kind === 'transport' ? base * (1 + 0.3 * (same - 1)) : same === 2 ? base * 1.3 : base
 }
 
-function bundleWorth(state: GameState, b: Bundle, to: number, owningAfter: Record<number, number>): number {
-  return b.deeds.reduce((sum, i) => sum + deedWorth(state, i, to, owningAfter), 0) + b.cash + b.jailCards * JAIL_CARD_VALUE
+function bundleValue(state: GameState, b: Bundle, to: number, owners: Record<number, number>): number {
+  return b.deeds.reduce((sum, i) => sum + valueTo(state, i, to, owners), 0) + b.cash + b.jailCards * JAIL_CARD_VALUE
 }
 
-/** Whether robot `me` should accept the deal on the table. */
-function judgeTrade(state: GameState, me: number, skill: RobotLevel): boolean {
+/** How robot `me` sees the deal on the table: what it gains and what it gives up, by its own lights. */
+function appraise(state: GameState, me: number): { gain: number; loss: number } {
   const t = state.trade!
-  // From the robot's side: what it gets and what it gives
+  const other = t.proposer
   const gets = t.give
   const gives = t.get
-  const other = t.proposer
   const after = { ...state.owners }
   for (const i of gets.deeds) after[i] = me
   for (const i of gives.deeds) after[i] = other
 
-  const gain = bundleWorth(state, gets, me, after)
-  // What we hand over is worth what it does for them (completing their set costs us dearly)
-  const loss = bundleWorth(state, gives, other, after)
-  if (state.players[me].cash - gives.cash < 0) return false
-  if (skill === 'easy') return gain >= loss * TRADE_BAR.easy || Math.random() < 0.15
-  return gain >= loss * TRADE_BAR[skill]
+  const gain = bundleValue(state, gets, me, after)
+  const ownLoss = bundleValue(state, gives, me, state.owners)
+  // Handing a rival their set is a cost in itself; greedy robots charge more for it
+  const theirGain = gives.deeds.reduce((sum, i) => sum + valueTo(state, i, other, after), 0)
+  const empowering = Math.max(0, theirGain - gives.deeds.reduce((sum, i) => sum + valueTo(state, i, me, state.owners), 0))
+  return { gain, loss: ownLoss + empowering * (0.3 + personaOf(state, me).greed * 0.7) }
 }
 
-/** How much over the asking price a robot offers: easy robots are generous, sharp ones haggle */
-const OFFER_PREMIUM: Record<RobotLevel, number> = { easy: 1.6, normal: 1.35, sharp: 1.15 }
-/** Rounds a robot waits between offers, so it doesn't pester anyone */
-const ROUNDS_BETWEEN_OFFERS = 2
-/** Each refusal raises the next offer for the same properties by this much */
-const RAISE_PER_REFUSAL = 0.2
-/** After this many refusals for the same properties, the robot stops asking */
-const MAX_REFUSALS = 3
+/** A robot's answer to the deal it's been offered: accept, haggle, or walk away. */
+function respondToDeal(state: GameState, me: number): Action {
+  const t = state.trade!
+  const robot = state.players[me]
+  const persona = personaOf(state, me)
+  const noise = NOISE[robot.robot ?? 'normal']
+  if (robot.cash - t.get.cash < 0) return { type: 'declineTrade' }
+
+  const { gain, loss } = appraise(state, me)
+  // Short of cash, a robot takes money more readily
+  const desperate = robot.cash < 150 && t.give.cash > 0
+  const bar = (1 + persona.greed * 0.35 - (desperate ? 0.2 : 0)) * jitter(noise)
+  if (gain >= loss * bar) return { type: 'acceptTrade' }
+
+  // Close enough to haggle? Ask for the gap to be (mostly) closed with cash.
+  const close = gain >= loss * (0.5 + persona.greed * 0.15)
+  if (close && t.counters < MAX_COUNTERS) {
+    const shortfall = loss * bar - gain
+    const ask = roundTo10(shortfall * (0.55 + Math.random() * 0.45))
+    if (ask > 0) {
+      // Pay less first if we were paying; otherwise ask them for more
+      const ourCash = Math.max(0, t.get.cash - ask)
+      const extra = ask - (t.get.cash - ourCash)
+      const theirCash = Math.min(state.players[t.proposer].cash, t.give.cash + extra)
+      const give = { ...t.get, cash: ourCash }
+      const get = { ...t.give, cash: Math.max(0, theirCash) }
+      const changed = give.cash !== t.get.cash || get.cash !== t.give.cash
+      if (changed && !tradeProblem(state, me, t.proposer, give, get)) return { type: 'counterTrade', give, get }
+    }
+  }
+  return { type: 'declineTrade' }
+}
 
 /**
- * A deal that completes one of the robot's colour sets: the missing properties,
- * all held by one other player, bought for cash at a premium that depends on difficulty.
+ * Maybe propose a deal this turn. The robot looks for properties that would complete (or nearly
+ * complete) one of its sets, all held by one player, and decides how keen it is, what it can
+ * spare, and what to offer, possibly sweetening it with a property the other side needs.
  */
-function pickDeal(state: GameState, me: number, skill: RobotLevel, reserve: number): Action | null {
-  const last = state.proposedOnTurn[me]
+function pickDeal(state: GameState, me: number): Action | null {
+  const robot = state.players[me]
+  const persona = personaOf(state, me)
+  const noise = NOISE[robot.robot ?? 'normal']
   const active = state.players.filter((p) => !p.bankrupt).length
-  if (last !== undefined && state.turn - last < active * ROUNDS_BETWEEN_OFFERS) return null
-  const cash = state.players[me].cash
+
+  // Not every turn, and not twice in one round: eager robots try more often
+  const last = state.proposedOnTurn[me]
+  if (last !== undefined && state.turn - last < active) return null
+  if (Math.random() > 0.15 + persona.eagerness * 0.55) return null
+
+  const reserve = 40 + persona.caution * 260
+  const spare = robot.cash - reserve
+  const candidates: { action: Action; appeal: number }[] = []
 
   const seen = new Set<string>()
   for (const tile of BOARD) {
@@ -208,26 +273,71 @@ function pickDeal(state: GameState, me: number, skill: RobotLevel, reserve: numb
     const group = groupIndexes(tile.group)
     const mine = group.filter((i) => state.owners[i] === me)
     const missing = group.filter((i) => state.owners[i] !== me)
-    // Worth chasing when we hold most of the set and one player has the rest
-    if (mine.length === 0 || missing.length === 0 || missing.length > 2 || mine.length < missing.length) continue
+    if (mine.length === 0 || missing.length === 0 || missing.length > 2) continue
     const holders = new Set(missing.map((i) => state.owners[i]))
     if (holders.size !== 1) continue
     const holder = [...holders][0]
     if (holder === undefined || state.players[holder].bankrupt) continue
     if (missing.some((i) => deedTradeBlocker(state, i))) continue
 
-    // Turned down before? Raise the offer each time, and give up after a few tries
-    const refused = state.refusals[dealKey(me, holder, missing)] ?? 0
-    if (refused >= MAX_REFUSALS) continue
-    const asking = missing.reduce((sum, i) => sum + (BOARD[i] as BuyableTile).price, 0)
-    const premium = OFFER_PREMIUM[skill] + refused * RAISE_PER_REFUSAL
-    const offer = Math.round((asking * premium) / 10) * 10
-    if (cash - offer < reserve) continue
+    const theirCash = state.players[holder].cash
+    const struggling = theirCash < 150
+    const memory = state.dealMemory[dealKey(me, holder, missing)]
+    if (memory) {
+      // After being turned down, wait for a reason to try again: they're short of money,
+      // we're richer than last time, or enough time has passed (patient robots wait longer)
+      const fedUp = memory.refusals >= 1 + Math.round(persona.patience * 3)
+      const longAgo = state.turn - memory.turn > active * (2 + Math.round(persona.patience * 4))
+      const richer = spare > memory.lastCash * 1.5
+      if (fedUp && !struggling && !longAgo && !richer) continue
+    }
 
-    const give = { deeds: [], cash: offer, jailCards: 0 }
+    const after = { ...state.owners }
+    for (const i of missing) after[i] = me
+    const worthToMe = missing.reduce((sum, i) => sum + valueTo(state, i, me, after), 0)
+    const price = missing.reduce((sum, i) => sum + (BOARD[i] as BuyableTile).price, 0)
+    // The most this robot would ever pay, by need and keenness
+    const ceiling = Math.min(spare, worthToMe * (0.5 + persona.eagerness * 0.45))
+
+    // Open somewhere above face value; come back higher than last time; lowball someone struggling
+    let offer = price * (1.05 + persona.eagerness * 0.35) * jitter(noise)
+    if (memory) offer = Math.max(offer, memory.lastCash * (1.1 + Math.random() * 0.2))
+    if (struggling && persona.greed > 0.5) offer *= 0.85
+
+    // Sweetener: a property of ours that helps them more than it helps us
+    let sweetener: number | null = null
+    let sweetValue = 0
+    for (let i = 0; i < BOARD.length; i++) {
+      const t = BOARD[i]
+      if (state.owners[i] !== me || !isBuyable(t) || deedTradeBlocker(state, i) || group.includes(i)) continue
+      if (t.kind === 'property' && ownsGroup(state, me, t.group)) continue
+      const theirs = { ...after, [i]: holder }
+      const helpsThem = valueTo(state, i, holder, theirs)
+      const costsUs = valueTo(state, i, me, state.owners)
+      if (helpsThem > costsUs * 1.2 && helpsThem - costsUs > sweetValue) {
+        sweetener = i
+        sweetValue = helpsThem - costsUs
+      }
+    }
+    if (sweetener !== null && (offer > ceiling || Math.random() < 0.4)) offer -= sweetValue * 0.6
+
+    offer = roundTo10(Math.min(offer, ceiling))
+    // The sweetener only goes in when cash alone falls short of the price
+    const sweetened = sweetener !== null && offer < price
+    const total = offer + (sweetened ? sweetValue : 0)
+    // Coming back after a refusal means putting more cash on the table, never the same offer again
+    if (memory && offer <= memory.lastCash) continue
+    const credible = offer >= price * 0.6 || (sweetened && total >= price * 0.8)
+    if (!credible) continue
+
+    const give = { deeds: sweetened ? [sweetener!] : [], cash: offer, jailCards: 0 }
     const get = { deeds: missing, cash: 0, jailCards: 0 }
     if (tradeProblem(state, me, holder, give, get)) continue
-    return { type: 'proposeTrade', to: holder, give, get }
+    candidates.push({ action: { type: 'proposeTrade', to: holder, give, get }, appeal: worthToMe - offer })
   }
-  return null
+
+  if (candidates.length === 0) return null
+  // Usually go for the most appealing deal, sometimes another one
+  candidates.sort((a, b) => b.appeal - a.appeal)
+  return candidates[Math.random() < 0.75 ? 0 : Math.floor(Math.random() * candidates.length)].action
 }
