@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { installAudioUnlock, startMusic } from './audio/sound'
 import { useGameSounds } from './audio/useGameSounds'
 import { Board } from './components/Board'
+import { History } from './components/History'
 import { Home, type SetupMode } from './components/Home'
 import { JoinRoom } from './components/JoinRoom'
 import { Portfolio } from './components/Portfolio'
@@ -188,6 +189,7 @@ function GameScreen({ game, onExit }: { game: ReturnType<typeof useGame>; onExit
   const { state, roll, endTurn, buy, pass, applyCard, waiting } = game
   const [pinned, setPinned] = useState<number | null>(null)
   const [portfolio, setPortfolio] = useState<number | null>(null)
+  const [history, setHistory] = useState(false)
   useGameSounds(state)
 
   // A deed left open by the previous player shouldn't carry into the next turn
@@ -196,7 +198,7 @@ function GameScreen({ game, onExit }: { game: ReturnType<typeof useGame>; onExit
   // Space rolls or ends the turn; B / P buy or pass when a purchase is on the table
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.repeat || e.metaKey || e.ctrlKey || portfolio !== null) return
+      if (e.repeat || e.metaKey || e.ctrlKey || portfolio !== null || history) return
       if (e.key === 'Escape') return setPinned(null)
       if (waiting) return
       if (e.target instanceof HTMLElement && e.target.closest('button, input, textarea')) return
@@ -213,12 +215,13 @@ function GameScreen({ game, onExit }: { game: ReturnType<typeof useGame>; onExit
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [state.phase, state.pendingPurchase, portfolio, waiting, roll, endTurn, buy, pass, applyCard])
+  }, [state.phase, state.pendingPurchase, portfolio, history, waiting, roll, endTurn, buy, pass, applyCard])
 
   return (
     <main className="app">
       <Board game={game} pinned={pinned} onPin={setPinned} onExit={onExit} />
-      <Sidebar game={game} onOpenPortfolio={setPortfolio} onExit={onExit} />
+      <Sidebar game={game} onOpenPortfolio={setPortfolio} onOpenHistory={() => setHistory(true)} onExit={onExit} />
+      {history && <History state={state} onClose={() => setHistory(false)} />}
       {portfolio !== null && (
         <Portfolio
           state={state}

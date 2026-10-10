@@ -13,7 +13,8 @@ import {
   type GameState,
   type Seat,
 } from './game'
-import { createGameRow, loadGameRow, logAction, myUserId, saveGameRow } from './persistence'
+import { createGameRow, currentVersion, loadGameRow, logAction, myUserId, saveGameRow } from './persistence'
+import { SPEED_FACTOR, useSpeed } from './speed'
 
 /** How long the dice tumble before the token starts moving */
 export const ROLL_MS = 950
@@ -21,6 +22,10 @@ export const ROLL_MS = 950
 export const STEP_MS = 210
 /** Pause before each robot move, so people can follow what it's doing */
 const ROBOT_MS = 750
+/** Robots leave a drawn card on screen long enough to read */
+const ROBOT_CARD_MS = 2600
+/** And think a little before buying or passing */
+const ROBOT_DECIDE_MS = 1300
 /** Quiet period before a snapshot is written, so a run of hops becomes one save */
 const SAVE_DEBOUNCE_MS = 600
 /** How long to wait for a missing move before reloading the saved game */
@@ -69,6 +74,9 @@ export function useGame() {
 
   const latest = useRef(state)
   latest.current = state
+  // Every timer below scales with this device's game speed setting
+  const [speed] = useSpeed()
+  const pace = SPEED_FACTOR[speed]
 
   const current = state.players[state.current]
   /** A human at this device should be making the current decision (shows the controls) */
@@ -93,8 +101,10 @@ export function useGame() {
     const g = game.current
     if (!g) return
     const saved = await loadGameRow(g.id)
-    if (!saved || saved.state.seq < latest.current.seq) return
-    g.version = saved.version
+    if (!saved) return
+    // Always take the newest version number, even if our own state is further ahead
+    g.version = Math.max(g.version, saved.version)
+    if (saved.state.seq < latest.current.seq) return
     lastSaved.current = saved.state
     inbox.current = inbox.current.filter((m) => m.seq >= saved.state.seq)
     setInboxSize(inbox.current.length)
@@ -202,8 +212,16 @@ export function useGame() {
     setSync('saving')
     const t = setTimeout(async () => {
       try {
-        const version = await saveGameRow(g.id, state, g.version)
-        if (version === null) throw new Error('Game was changed elsewhere')
+        let version = await saveGameRow(g.id, state, g.version)
+        if (version === null) {
+          // Someone saved first (usually the previous player, just as the turn passed).
+          // If we're not behind them, take the newer version number and save again.
+          const latestRow = await currentVersion(g.id)
+          if (!latestRow || latestRow.seq > state.seq) throw new Error('Game was changed elsewhere')
+          g.version = latestRow.version
+          version = await saveGameRow(g.id, state, g.version)
+          if (version === null) throw new Error('Game was changed elsewhere')
+        }
         g.version = version
         lastSaved.current = state
         setSync('saved')
@@ -267,27 +285,29 @@ export function useGame() {
   // Animation timers: dice settle, then the token hops square by square (every device runs these).
   useEffect(() => {
     if (state.phase === 'rolling') {
-      const t = setTimeout(() => act({ type: 'startMove' }), ROLL_MS)
+      const t = setTimeout(() => act({ type: 'startMove' }), ROLL_MS * pace)
       return () => clearTimeout(t)
     }
     if (state.phase === 'moving' && state.stepsLeft > 0) {
-      const t = setTimeout(() => act({ type: 'step' }), STEP_MS)
+      const t = setTimeout(() => act({ type: 'step' }), STEP_MS * pace)
       return () => clearTimeout(t)
     }
-  }, [state.phase, state.stepsLeft, act])
+  }, [state.phase, state.stepsLeft, act, pace])
 
   // Robots take their turns on their own (online, the host's device plays them).
   useEffect(() => {
     if (sync === 'loading' || !robotHere || inboxSize > 0) return
     const move = robotMove(state)
     if (!move) return
+    const pause =
+      state.phase === 'card' ? ROBOT_CARD_MS : state.pendingPurchase !== null ? ROBOT_DECIDE_MS : ROBOT_MS
     const t = setTimeout(() => {
       // Never let a robot stall the game with a move the rules refuse
       const choice = [move, ...FALLBACKS].find((a) => reducer(state, a) !== state)
       if (choice) act(choice)
-    }, ROBOT_MS)
+    }, pause * pace)
     return () => clearTimeout(t)
-  }, [state, sync, robotHere, inboxSize, act])
+  }, [state, sync, robotHere, inboxSize, act, pace])
 
   const roll = useCallback(() => act({ type: 'roll', dice: rollDice() }), [act])
   const endTurn = useCallback(() => act({ type: 'endTurn' }), [act])
