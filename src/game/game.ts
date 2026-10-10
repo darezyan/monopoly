@@ -1,5 +1,6 @@
 import { BOARD, PASS_GO_SALARY, TRANSPORT_RENT, naira, type ColorGroup, type Tile } from '../data/board'
 import { DECKS, type Card, type DeckKind } from '../data/cards'
+import { tokenInfo, type RobotLevel, type TokenKind } from '../data/tokens'
 
 export const JAIL_INDEX = 10
 export const GO_SLOW_INDEX = 20
@@ -21,6 +22,8 @@ export type GameSettings = {
   /** Landing exactly on GO pays double salary */
   doubleGoSalary: boolean
   bail: number
+  /** Shuffle who goes first when the game starts */
+  shuffleOrder: boolean
 }
 
 export const DEFAULT_SETTINGS: GameSettings = {
@@ -31,15 +34,16 @@ export const DEFAULT_SETTINGS: GameSettings = {
   goSlowJackpot: false,
   doubleGoSalary: false,
   bail: 50,
+  shuffleOrder: true,
 }
-
-export type TokenKind = 'danfo' | 'okada' | 'taxi' | 'canoe'
 
 export type Player = {
   id: number
   name: string
   token: TokenKind
   color: string
+  /** Robot difficulty, or null for a human */
+  robot: RobotLevel | null
   cash: number
   position: number
   inJail: boolean
@@ -115,18 +119,23 @@ export type Action =
   | { type: 'declareBankruptcy' }
   | { type: 'endTurn' }
 
-const DEFAULT_PLAYERS: Pick<Player, 'name' | 'token' | 'color'>[] = [
-  { name: 'Tunde', token: 'danfo', color: '#f5c518' },
-  { name: 'Amaka', token: 'okada', color: '#d8382b' },
-  { name: 'Chidi', token: 'taxi', color: '#1e9b57' },
-  { name: 'Zainab', token: 'canoe', color: '#3b6fe0' },
+/** A seat at the table, as chosen on the setup screen */
+export type Seat = { name: string; token: TokenKind; robot: RobotLevel | null }
+
+export const DEFAULT_SEATS: Seat[] = [
+  { name: 'Tunde', token: 'danfo', robot: null },
+  { name: 'Amaka', token: 'okada', robot: null },
+  { name: 'Chidi', token: 'taxi', robot: null },
+  { name: 'Zainab', token: 'canoe', robot: null },
 ]
 
-export function createGame(count = 4, settings: GameSettings = DEFAULT_SETTINGS): GameState {
+export function createGame(seats: Seat[] = DEFAULT_SEATS, settings: GameSettings = DEFAULT_SETTINGS): GameState {
+  const order = settings.shuffleOrder ? shuffled(seats.length).map((i) => seats[i]) : seats
   return {
     settings,
-    players: DEFAULT_PLAYERS.slice(0, count).map((p, id) => ({
-      ...p,
+    players: order.map((seat, id) => ({
+      ...seat,
+      color: tokenInfo(seat.token).color,
       id,
       cash: settings.startingCash,
       position: 0,
@@ -165,7 +174,7 @@ export function createGame(count = 4, settings: GameSettings = DEFAULT_SETTINGS)
  * Keeps old saves loadable as rules grow, without database migrations for game state.
  */
 export function upgradeState(saved: GameState): GameState {
-  const base = createGame(saved.players.length, { ...DEFAULT_SETTINGS, ...saved.settings })
+  const base = createGame(saved.players, { ...DEFAULT_SETTINGS, ...saved.settings, shuffleOrder: false })
   return {
     ...base,
     ...saved,
@@ -285,6 +294,13 @@ export function rentFor(state: GameState, index: number): number {
       return (state.dice[0] + state.dice[1]) * multiplier
     }
   }
+}
+
+/** The seats a finished game was played with, for a rematch */
+export function seatsOf(state: GameState): Seat[] {
+  return [...state.players]
+    .sort((a, b) => a.id - b.id)
+    .map(({ name, token, robot }) => ({ name, token, robot }))
 }
 
 /** Whether the current player may manage their properties right now. */
@@ -538,8 +554,10 @@ function declareBankruptcy(state: GameState): GameState {
     const tile = BOARD[i]
     if (built === 0 || tile.kind !== 'property') continue
     salvage += (built * tile.houseCost) / 2
-    if (built === HOTEL) bank.hotels++
-    else bank.houses += built
+    if (state.settings.limitedBuildings) {
+      if (built === HOTEL) bank.hotels++
+      else bank.houses += built
+    }
     delete buildings[i]
   }
   state = { ...state, bank, buildings }
@@ -682,8 +700,10 @@ export function reducer(state: GameState, action: Action): GameState {
       if (buildBlocker(state, index)) return state
       const tile = BOARD[index] as Extract<Tile, { kind: 'property' }>
       const built = level(state, index) + 1
-      const bank =
-        built === HOTEL
+      // The bank's stock only matters (and only changes) when buildings are limited
+      const bank = !state.settings.limitedBuildings
+        ? state.bank
+        : built === HOTEL
           ? { houses: state.bank.houses + 4, hotels: state.bank.hotels - 1 }
           : { ...state.bank, houses: state.bank.houses - 1 }
       let next = charge(state, player.id, tile.houseCost, 'bank')
@@ -696,8 +716,9 @@ export function reducer(state: GameState, action: Action): GameState {
       if (sellBlocker(state, index)) return state
       const tile = BOARD[index] as Extract<Tile, { kind: 'property' }>
       const built = level(state, index)
-      const bank =
-        built === HOTEL
+      const bank = !state.settings.limitedBuildings
+        ? state.bank
+        : built === HOTEL
           ? { houses: state.bank.houses - 4, hotels: state.bank.hotels + 1 }
           : { ...state.bank, houses: state.bank.houses + 1 }
       const buildings = { ...state.buildings, [index]: built - 1 }
