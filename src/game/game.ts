@@ -24,6 +24,10 @@ export type GameSettings = {
   bail: number
   /** Shuffle who goes first when the game starts */
   shuffleOrder: boolean
+  /** House rule: players may borrow from the bank, repaying by their third pass of GO */
+  bankLoans: boolean
+  /** Interest added to a loan each time its holder passes GO, in percent */
+  loanRate: number
 }
 
 export const DEFAULT_SETTINGS: GameSettings = {
@@ -35,6 +39,8 @@ export const DEFAULT_SETTINGS: GameSettings = {
   doubleGoSalary: false,
   bail: 50,
   shuffleOrder: true,
+  bankLoans: false,
+  loanRate: 10,
 }
 
 export type Player = {
@@ -56,6 +62,8 @@ export type Player = {
   jailFree: DeckKind[]
   /** Who the player owes while their cash is below zero */
   creditor: number | 'bank' | null
+  /** An outstanding bank loan (house rule): what's owed, and how many times GO has been passed since */
+  loan?: { balance: number; laps: number } | null
   bankrupt: boolean
 }
 
@@ -150,6 +158,8 @@ export type Action =
   | { type: 'acceptTrade' }
   | { type: 'declineTrade' }
   | { type: 'cancelTrade' }
+  | { type: 'borrow'; amount: number }
+  | { type: 'repayLoan'; amount: number }
 
 /** One side of a deal */
 export type Bundle = { deeds: number[]; cash: number; jailCards: number }
@@ -478,9 +488,61 @@ export function buildingsOf(state: GameState, playerId: number) {
   return { houses, hotels }
 }
 
-/** Cash plus what everything they own is worth (mortgaged deeds at half). */
+// ---------- Bank loans (house rule) ----------
+
+/** Loans fall due on this pass of GO */
+export const LOAN_LAPS = 3
+const LOAN_BASE = 100
+const LOAN_CAP = 500
+
+/** What a player's properties are worth to the bank as security (mortgaged ones count for nothing) */
+function collateral(state: GameState, playerId: number): number {
+  let value = 0
+  BOARD.forEach((tile, i) => {
+    if (state.owners[i] !== playerId || !isBuyable(tile) || state.mortgaged[i]) return
+    value += tile.price
+    if (tile.kind === 'property') value += level(state, i) * tile.houseCost
+  })
+  return value
+}
+
+/** Most a player may owe the bank: ₦100M plus half their property's worth, up to ₦500M */
+export function loanLimit(state: GameState, playerId: number): number {
+  return Math.min(LOAN_CAP, Math.floor((LOAN_BASE + collateral(state, playerId) / 2) / 10) * 10)
+}
+
+/** How much more this player could borrow right now (0 if loans are off) */
+export function loanHeadroom(state: GameState, playerId: number): number {
+  if (!state.settings.bankLoans) return 0
+  return Math.max(0, loanLimit(state, playerId) - (state.players[playerId].loan?.balance ?? 0))
+}
+
+/** Why the current player can't borrow or repay right now, or null if they can */
+export function loanBlocker(state: GameState): string | null {
+  if (!state.settings.bankLoans) return 'Bank loans are off in this game'
+  if (state.trade) return 'Finish the deal first'
+  if (state.phase !== 'idle' && state.phase !== 'landed') return 'Wait for your move to finish'
+  return null
+}
+
+/** On passing GO: the loan grows by the interest rate, and on the third pass the bank collects it all. */
+function loanOnGo(state: GameState, playerId: number): GameState {
+  const loan = state.players[playerId].loan
+  if (!loan) return state
+  const interest = Math.ceil((loan.balance * state.settings.loanRate) / 100)
+  const balance = loan.balance + interest
+  const laps = loan.laps + 1
+  state = log(state, playerId, `owes ${naira(interest)} more in loan interest`)
+  if (laps < LOAN_LAPS) return updatePlayer(state, playerId, { loan: { balance, laps } })
+  // Due: the bank takes the full balance; if that leaves them short, the usual debt rules apply
+  state = updatePlayer(state, playerId, { loan: null })
+  state = charge(state, playerId, balance, 'bank')
+  return log(state, playerId, 'had their bank loan called in', -balance)
+}
+
+/** Cash plus what everything they own is worth (mortgaged deeds at half), less any loan. */
 export function netWorth(state: GameState, playerId: number): number {
-  let worth = state.players[playerId].cash
+  let worth = state.players[playerId].cash - (state.players[playerId].loan?.balance ?? 0)
   BOARD.forEach((tile, i) => {
     if (state.owners[i] !== playerId || !isBuyable(tile)) return
     worth += state.mortgaged[i] ? tile.price / 2 : tile.price
@@ -681,6 +743,7 @@ function declareBankruptcy(state: GameState): GameState {
     bankrupt: true,
     cash: 0,
     creditor: null,
+    loan: null,
     inJail: false,
     jailFree: [],
   })
@@ -936,6 +999,7 @@ export function reducer(state: GameState, action: Action): GameState {
         const salary = exact ? PASS_GO_SALARY * 2 : PASS_GO_SALARY
         next = credit(next, player.id, salary)
         next = log(next, player.id, exact ? `landed on GO: double salary!` : `passed GO and collected ${naira(salary)}`, salary)
+        if (state.settings.bankLoans) next = loanOnGo(next, player.id)
       }
       next = { ...next, stepsLeft }
       return stepsLeft === 0 ? resolveLanding(next) : next
@@ -1037,6 +1101,27 @@ export function reducer(state: GameState, action: Action): GameState {
       delete mortgaged[index]
       const next = charge({ ...state, mortgaged }, player.id, cost, 'bank')
       return log(next, player.id, `paid off the mortgage on ${tile.name}`, -cost)
+    }
+
+    case 'borrow': {
+      const amount = action.amount
+      if (loanBlocker(state) || !Number.isInteger(amount) || amount <= 0) return state
+      if (amount > loanHeadroom(state, player.id)) return state
+      const loan = player.loan ?? { balance: 0, laps: 0 }
+      let next = updatePlayer(state, player.id, { loan: { ...loan, balance: loan.balance + amount } })
+      next = credit(next, player.id, amount)
+      return log(next, player.id, `borrowed ${naira(amount)} from the bank`, amount)
+    }
+
+    case 'repayLoan': {
+      const amount = action.amount
+      const loan = player.loan
+      if (loanBlocker(state) || !loan || !Number.isInteger(amount) || amount <= 0) return state
+      if (amount > loan.balance || amount > player.cash) return state
+      const balance = loan.balance - amount
+      let next = updatePlayer(state, player.id, { loan: balance > 0 ? { ...loan, balance } : null })
+      next = charge(next, player.id, amount, 'bank')
+      return log(next, player.id, balance > 0 ? `paid back ${naira(amount)} of their loan` : 'cleared their bank loan', -amount)
     }
 
     case 'declareBankruptcy': {
