@@ -2,6 +2,7 @@
 // Browsers only allow audio after a user gesture, so the context is created on first tap/keypress.
 
 const MUTE_KEY = 'eko:muted'
+const VOLUME_KEY = 'eko:gameVolume'
 
 let ctx: AudioContext | null = null
 let master: GainNode
@@ -9,6 +10,8 @@ let musicBus: GainNode
 let sfxBus: GainNode
 let noiseBuffer: AudioBuffer
 let muted = readMuted()
+/** Music and effects together, 0–1; voice chat has its own volume */
+let volume = readVolume()
 const listeners = new Set<(muted: boolean) => void>()
 
 function readMuted() {
@@ -19,13 +22,24 @@ function readMuted() {
   }
 }
 
+function readVolume() {
+  try {
+    const saved = Number(localStorage.getItem(VOLUME_KEY) ?? 1)
+    return Number.isFinite(saved) ? Math.min(1, Math.max(0, saved)) : 1
+  } catch {
+    return 1
+  }
+}
+
+const masterLevel = () => (muted ? 0 : volume)
+
 function ensureContext(): AudioContext | null {
   if (ctx) return ctx
   const Ctor = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
   if (!Ctor) return null
   ctx = new Ctor()
   master = ctx.createGain()
-  master.gain.value = muted ? 0 : 1
+  master.gain.value = masterLevel()
   master.connect(ctx.destination)
   musicBus = ctx.createGain()
   musicBus.gain.value = 0.16
@@ -62,8 +76,21 @@ export function setMuted(value: boolean) {
   } catch {
     // Not remembered in private mode; still applies for this visit
   }
-  if (ctx) master.gain.setTargetAtTime(value ? 0 : 1, ctx.currentTime, 0.05)
+  if (ctx) master.gain.setTargetAtTime(masterLevel(), ctx.currentTime, 0.05)
   listeners.forEach((fn) => fn(value))
+}
+
+export const getGameVolume = () => volume
+
+/** Music and effects volume, 0–1. Remembered on this device. */
+export function setGameVolume(value: number) {
+  volume = Math.min(1, Math.max(0, value))
+  try {
+    localStorage.setItem(VOLUME_KEY, String(volume))
+  } catch {
+    // Not remembered in private mode
+  }
+  if (ctx) master.gain.setTargetAtTime(masterLevel(), ctx.currentTime, 0.05)
 }
 
 export function onMutedChange(fn: (muted: boolean) => void) {
