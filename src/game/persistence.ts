@@ -99,15 +99,22 @@ export async function loadGameRow(id: string): Promise<SavedGame | null> {
  */
 export async function saveGameRow(id: string, state: GameState, version: number): Promise<number | null> {
   const status: GameStatus = state.phase === 'over' ? 'finished' : 'playing'
+  // No .single()/.maybeSingle(): zero updated rows is a normal conflict, not an error
   const { data, error } = await supabase!
     .from('games')
     .update({ state, status, version: version + 1 })
     .eq('id', id)
     .eq('version', version)
     .select('version')
-    .maybeSingle()
   if (error) throw error
-  return data ? data.version : null
+  return data.length > 0 ? data[0].version : null
+}
+
+/** The latest saved version and decision count, to recover from a save conflict. */
+export async function currentVersion(id: string): Promise<{ version: number; seq: number } | null> {
+  const { data, error } = await supabase!.from('games').select('version, state->seq').eq('id', id).maybeSingle()
+  if (error) throw error
+  return data && { version: data.version, seq: Number(data.seq ?? 0) }
 }
 
 export async function logAction(gameId: string, action: Action) {
