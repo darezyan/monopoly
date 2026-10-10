@@ -46,6 +46,8 @@ export type Player = {
   robot: RobotLevel | null
   /** The signed-in user playing this seat in an online room (absent offline and for robots) */
   userId?: string | null
+  /** A robot's personality, rolled at the start of the game (absent for humans) */
+  persona?: Persona
   cash: number
   position: number
   inJail: boolean
@@ -118,8 +120,8 @@ export type GameState = {
   trade: Trade | null
   /** Player id → turn they last proposed a deal on (robots use it to avoid pestering) */
   proposedOnTurn: Record<number, number>
-  /** How many times each proposer → responder → properties deal has been turned down */
-  refusals: Record<string, number>
+  /** What each proposer remembers about asking someone for certain properties (see dealKey) */
+  dealMemory: Record<string, DealMemory>
   /** Count of player decisions applied so far; online clients use it to stay in step */
   seq: number
   /** Turn number, for grouping the history; goes up each time play passes to the next player */
@@ -158,9 +160,44 @@ export const EMPTY_BUNDLE: Bundle = { deeds: [], cash: 0, jailCards: 0 }
  * A deal on the table. `proposer` offers `give` in exchange for `get`;
  * `responder` must accept, decline or counter (which swaps the roles).
  */
-export type Trade = { proposer: number; responder: number; give: Bundle; get: Bundle; counters: number }
+export type Trade = {
+  proposer: number
+  responder: number
+  give: Bundle
+  get: Bundle
+  counters: number
+  /** Who started this negotiation and which properties they were after (survives counter-offers) */
+  opener?: { proposer: number; responder: number; wanted: number[] }
+}
 
 const TRADE_ACTIONS = new Set<Action['type']>(['counterTrade', 'acceptTrade', 'declineTrade', 'cancelTrade'])
+
+/**
+ * How a robot plays deals, each trait from 0 to 1. Rolled randomly within a range set by
+ * difficulty, so no two robots (or games) behave quite the same.
+ */
+export type Persona = {
+  /** How much they demand for what they own */
+  greed: number
+  /** How hard they chase what they want */
+  eagerness: number
+  /** How long they stay on a deal before letting it rest */
+  patience: number
+  /** How much cash they like to keep in hand */
+  caution: number
+}
+
+const PERSONA_RANGES: Record<RobotLevel, Record<keyof Persona, [number, number]>> = {
+  easy: { greed: [0, 0.35], eagerness: [0.5, 1], patience: [0.1, 0.5], caution: [0, 0.4] },
+  normal: { greed: [0.2, 0.6], eagerness: [0.35, 0.8], patience: [0.3, 0.8], caution: [0.25, 0.7] },
+  sharp: { greed: [0.5, 0.95], eagerness: [0.3, 0.75], patience: [0.5, 1], caution: [0.35, 0.8] },
+}
+
+export function rollPersona(level: RobotLevel): Persona {
+  const roll = ([lo, hi]: [number, number]) => Math.round((lo + Math.random() * (hi - lo)) * 100) / 100
+  const r = PERSONA_RANGES[level]
+  return { greed: roll(r.greed), eagerness: roll(r.eagerness), patience: roll(r.patience), caution: roll(r.caution) }
+}
 
 /** A seat at the table, as chosen on the setup screen */
 export type Seat = { name: string; token: TokenKind; robot: RobotLevel | null; userId?: string | null }
@@ -179,6 +216,7 @@ export function createGame(seats: Seat[] = DEFAULT_SEATS, settings: GameSettings
     players: order.map((seat, id) => ({
       ...seat,
       color: tokenInfo(seat.token).color,
+      ...(seat.robot && { persona: rollPersona(seat.robot) }),
       id,
       cash: settings.startingCash,
       position: 0,
@@ -210,7 +248,7 @@ export function createGame(seats: Seat[] = DEFAULT_SEATS, settings: GameSettings
     winner: null,
     trade: null,
     proposedOnTurn: {},
-    refusals: {},
+    dealMemory: {},
     seq: 0,
     turn: 1,
     events: [],
@@ -228,7 +266,12 @@ export function upgradeState(saved: GameState): GameState {
     ...base,
     ...saved,
     settings: base.settings,
-    players: saved.players.map((p, i) => ({ ...base.players[i], ...p })),
+    // Robots from saves made before personalities existed get one now
+    players: saved.players.map((p, i) => ({
+      ...base.players[i],
+      ...p,
+      ...(p.robot && !p.persona && { persona: rollPersona(p.robot) }),
+    })),
   }
 }
 
@@ -712,6 +755,9 @@ export const tradeInterest = (deeds: number[], state: GameState) =>
 const dealTerms = (t: Trade) => ({ proposer: t.proposer, responder: t.responder, give: t.give, get: t.get })
 
 /** Identifies "the same deal" across attempts: who asks whom, for which properties */
+/** Refusals so far, the last cash offered, and when, for one proposer → responder → properties pairing */
+export type DealMemory = { refusals: number; lastCash: number; turn: number }
+
 export const dealKey = (proposer: number, responder: number, wanted: number[]) =>
   `${proposer}>${responder}:${[...wanted].sort((a, b) => a - b).join(',')}`
 
@@ -761,7 +807,14 @@ function tradeReducer(state: GameState, action: Action): GameState {
       // Deals are made before rolling; once the dice are thrown they're closed until next turn
       if (t || state.phase !== 'idle' || state.rolledThisTurn || state.drawn) return state
       if (tradeProblem(state, state.current, action.to, action.give, action.get)) return state
-      const trade: Trade = { proposer: state.current, responder: action.to, give: action.give, get: action.get, counters: 0 }
+      const trade: Trade = {
+        proposer: state.current,
+        responder: action.to,
+        give: action.give,
+        get: action.get,
+        counters: 0,
+        opener: { proposer: state.current, responder: action.to, wanted: action.get.deeds },
+      }
       const proposedOnTurn = { ...state.proposedOnTurn, [state.current]: state.turn }
       return log({ ...state, trade, proposedOnTurn }, state.current, `offered ${state.players[action.to].name} a deal`, undefined, {
         ...dealTerms(trade),
@@ -772,7 +825,14 @@ function tradeReducer(state: GameState, action: Action): GameState {
       if (!t || t.counters >= 6) return state
       // The responder becomes the proposer: they now give what they're offering back
       if (tradeProblem(state, t.responder, t.proposer, action.give, action.get)) return state
-      const trade: Trade = { proposer: t.responder, responder: t.proposer, give: action.give, get: action.get, counters: t.counters + 1 }
+      const trade: Trade = {
+        proposer: t.responder,
+        responder: t.proposer,
+        give: action.give,
+        get: action.get,
+        counters: t.counters + 1,
+        opener: t.opener,
+      }
       return log({ ...state, trade }, t.responder, `came back with a counter-offer`, undefined, {
         ...dealTerms(trade),
         outcome: 'countered',
@@ -790,9 +850,20 @@ function tradeReducer(state: GameState, action: Action): GameState {
     }
     case 'declineTrade': {
       if (!t) return state
-      const key = dealKey(t.proposer, t.responder, t.get.deeds)
-      const refusals = { ...state.refusals, [key]: (state.refusals[key] ?? 0) + 1 }
-      return log({ ...state, trade: null, refusals }, t.responder, `turned down ${state.players[t.proposer].name}’s deal`, undefined, {
+      // Remember the refusal against whoever started the negotiation, even after counter-offers
+      const opener = t.opener ?? { proposer: t.proposer, responder: t.responder, wanted: t.get.deeds }
+      const key = dealKey(opener.proposer, opener.responder, opener.wanted)
+      const before = state.dealMemory[key]
+      const openerCash = t.proposer === opener.proposer ? t.give.cash : t.get.cash
+      const dealMemory = {
+        ...state.dealMemory,
+        [key]: {
+          refusals: (before?.refusals ?? 0) + 1,
+          lastCash: Math.max(openerCash, before?.lastCash ?? 0),
+          turn: state.turn,
+        },
+      }
+      return log({ ...state, trade: null, dealMemory }, t.responder, `turned down ${state.players[t.proposer].name}’s deal`, undefined, {
         ...dealTerms(t),
         outcome: 'declined',
       })
