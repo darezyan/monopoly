@@ -26,6 +26,8 @@ export type GameSettings = {
   shuffleOrder: boolean
   /** House rule: players may borrow from the bank, repaying by their third pass of GO */
   bankLoans: boolean
+  /** House rule: a property someone passes on goes to auction */
+  auctions: boolean
   /** Interest added to a loan each time its holder passes GO, in percent */
   loanRate: number
 }
@@ -40,6 +42,7 @@ export const DEFAULT_SETTINGS: GameSettings = {
   bail: 50,
   shuffleOrder: true,
   bankLoans: false,
+  auctions: false,
   loanRate: 10,
 }
 
@@ -126,6 +129,8 @@ export type GameState = {
   winner: number | null
   /** A deal waiting for an answer; play pauses until it's settled */
   trade: Trade | null
+  /** A property up for auction; play pauses until it's sold or nobody wants it */
+  auction: Auction | null
   /** Player id → turn they last proposed a deal on (robots use it to avoid pestering) */
   proposedOnTurn: Record<number, number>
   /** What each proposer remembers about asking someone for certain properties (see dealKey) */
@@ -160,6 +165,8 @@ export type Action =
   | { type: 'cancelTrade' }
   | { type: 'borrow'; amount: number }
   | { type: 'repayLoan'; amount: number }
+  | { type: 'bid'; amount: number }
+  | { type: 'dropOut' }
 
 /** One side of a deal */
 export type Bundle = { deeds: number[]; cash: number; jailCards: number }
@@ -257,6 +264,7 @@ export function createGame(seats: Seat[] = DEFAULT_SEATS, settings: GameSettings
     cardRent: null,
     winner: null,
     trade: null,
+    auction: null,
     proposedOnTurn: {},
     dealMemory: {},
     seq: 0,
@@ -770,9 +778,82 @@ function declareBankruptcy(state: GameState): GameState {
 
 // ---------- Trading ----------
 
-/** The player whose decision the game is waiting on: a deal's responder, otherwise whoever's turn it is */
+/** The player whose decision the game is waiting on: the bidder up in an auction, a deal's responder, or whoever's turn it is */
 export function actingPlayer(state: GameState): number {
+  if (state.auction) return state.auction.bidders[state.auction.turn]
   return state.trade ? state.trade.responder : state.current
+}
+
+// ---------- Auctions (house rule) ----------
+
+/**
+ * Bidding goes round the table: on your go you raise the high bid or drop out.
+ * The last bidder left with the high bid wins; if everyone drops out with no bids, it stays unsold.
+ */
+export type Auction = {
+  index: number
+  /** Highest bid so far (0 before anyone bids) */
+  bid: number
+  /** Who holds the highest bid */
+  leader: number | null
+  /** Players still in, in bidding order */
+  bidders: number[]
+  /** Position in `bidders` of whoever bids next */
+  turn: number
+}
+
+/** Bids go up in steps of at least ₦10M */
+export const MIN_RAISE = 10
+
+const AUCTION_ACTIONS = new Set<Action['type']>(['bid', 'dropOut'])
+
+/** Start an auction for a property the current player passed on: everyone still in the game may bid. */
+function startAuction(state: GameState, index: number): GameState {
+  const n = state.players.length
+  // Bidding starts with the player after the one who passed, and comes round to them last
+  const bidders = Array.from({ length: n }, (_, k) => (state.current + 1 + k) % n).filter(
+    (id) => !state.players[id].bankrupt,
+  )
+  state = { ...state, pendingPurchase: null, auction: { index, bid: 0, leader: null, bidders, turn: 0 } }
+  return log(state, state.current, `put ${BOARD[index].name} up for auction`)
+}
+
+/** Settle the auction if it's over: one bidder left holding the high bid, or nobody left at all. */
+function settleAuction(state: GameState): GameState {
+  const a = state.auction!
+  const tile = BOARD[a.index] as BuyableTile
+  if (a.bidders.length === 0) {
+    return log({ ...state, auction: null }, state.current, `got no bids. ${tile.name} stays with the bank`)
+  }
+  if (a.bidders.length === 1 && a.leader === a.bidders[0]) {
+    const winner = a.leader
+    let next: GameState = { ...state, auction: null, owners: { ...state.owners, [a.index]: winner } }
+    next = charge(next, winner, a.bid, 'bank')
+    return log(next, winner, `won ${tile.name} at auction`, -a.bid)
+  }
+  return state
+}
+
+function auctionReducer(state: GameState, action: Action): GameState {
+  const a = state.auction
+  if (!a) return state
+  const bidder = a.bidders[a.turn]
+  switch (action.type) {
+    case 'bid': {
+      const cash = state.players[bidder].cash
+      if (!Number.isInteger(action.amount) || action.amount < a.bid + MIN_RAISE || action.amount > cash) return state
+      const auction = { ...a, bid: action.amount, leader: bidder, turn: (a.turn + 1) % a.bidders.length }
+      return settleAuction(log({ ...state, auction }, bidder, `bid ${naira(action.amount)}`))
+    }
+    case 'dropOut': {
+      const bidders = a.bidders.filter((_, k) => k !== a.turn)
+      const turn = bidders.length === 0 ? 0 : a.turn % bidders.length
+      const auction = { ...a, bidders, turn }
+      return settleAuction(log({ ...state, auction }, bidder, 'dropped out of the auction'))
+    }
+    default:
+      return state
+  }
 }
 
 const isEmptyBundle = (b: Bundle) => b.deeds.length === 0 && b.cash === 0 && b.jailCards === 0
@@ -941,6 +1022,8 @@ function tradeReducer(state: GameState, action: Action): GameState {
 
 export function reducer(state: GameState, action: Action): GameState {
   if (state.phase === 'over') return state
+  // An auction in progress takes priority over everything
+  if (state.auction) return AUCTION_ACTIONS.has(action.type) ? auctionReducer(state, action) : state
   if (action.type === 'proposeTrade' || TRADE_ACTIONS.has(action.type)) return tradeReducer(state, action)
   // Everything else waits while a deal is on the table
   if (state.trade) return state
@@ -1037,7 +1120,8 @@ export function reducer(state: GameState, action: Action): GameState {
     case 'pass': {
       if (state.pendingPurchase === null) return state
       const tile = BOARD[state.pendingPurchase]
-      return { ...log(state, player.id, `passed on ${tile.name}`), pendingPurchase: null }
+      const passed = { ...log(state, player.id, `passed on ${tile.name}`), pendingPurchase: null }
+      return state.settings.auctions ? startAuction(passed, state.pendingPurchase) : passed
     }
 
     case 'build': {
