@@ -1,6 +1,7 @@
 import { BOARD } from '../data/board'
 import type { RobotLevel } from '../data/tokens'
 import {
+  actingPlayer,
   buildBlocker,
   groupIndexes,
   isBuyable,
@@ -12,6 +13,7 @@ import {
   unmortgageBlocker,
   unmortgageCost,
   type Action,
+  type Bundle,
   type BuyableTile,
   type GameState,
 } from './game'
@@ -24,6 +26,13 @@ const RESERVE: Record<RobotLevel, number> = { easy: 0, normal: 150, sharp: 60 }
  * nothing for them to do (not their turn, or the board is still animating).
  */
 export function robotMove(state: GameState): Action | null {
+  // A deal on the table comes first, whoever's turn it is
+  if (state.trade) {
+    const responder = state.players[actingPlayer(state)]
+    if (!responder.robot) return null
+    return judgeTrade(state, responder.id, responder.robot) ? { type: 'acceptTrade' } : { type: 'declineTrade' }
+  }
+
   const me = state.players[state.current]
   if (!me.robot || me.bankrupt) return null
   const skill = me.robot
@@ -122,4 +131,44 @@ function raiseMoney(state: GameState): Action | null {
   if (mortgageable.length > 0) return { type: 'mortgage', index: mortgageable[0] }
 
   return null
+}
+
+/** How much better than even a deal must look before a robot says yes */
+const TRADE_BAR: Record<RobotLevel, number> = { easy: 0.9, normal: 1.1, sharp: 1.25 }
+const JAIL_CARD_VALUE = 50
+
+/** What a deed is worth to `holder`: its price, plus a lot more if it completes their colour set. */
+function deedWorth(state: GameState, index: number, holder: number, owningAfter: Record<number, number>): number {
+  const tile = BOARD[index] as BuyableTile
+  let worth = state.mortgaged[index] ? tile.price / 2 : tile.price
+  if (tile.kind === 'property') {
+    const group = groupIndexes(tile.group)
+    const owned = group.filter((i) => owningAfter[i] === holder).length
+    if (owned === group.length) worth *= 2.5
+    else if (owned > 1) worth *= 1.3
+  }
+  return worth
+}
+
+function bundleWorth(state: GameState, b: Bundle, to: number, owningAfter: Record<number, number>): number {
+  return b.deeds.reduce((sum, i) => sum + deedWorth(state, i, to, owningAfter), 0) + b.cash + b.jailCards * JAIL_CARD_VALUE
+}
+
+/** Whether robot `me` should accept the deal on the table. */
+function judgeTrade(state: GameState, me: number, skill: RobotLevel): boolean {
+  const t = state.trade!
+  // From the robot's side: what it gets and what it gives
+  const gets = t.give
+  const gives = t.get
+  const other = t.proposer
+  const after = { ...state.owners }
+  for (const i of gets.deeds) after[i] = me
+  for (const i of gives.deeds) after[i] = other
+
+  const gain = bundleWorth(state, gets, me, after)
+  // What we hand over is worth what it does for them (completing their set costs us dearly)
+  const loss = bundleWorth(state, gives, other, after)
+  if (state.players[me].cash - gives.cash < 0) return false
+  if (skill === 'easy') return gain >= loss * TRADE_BAR.easy || Math.random() < 0.15
+  return gain >= loss * TRADE_BAR[skill]
 }
