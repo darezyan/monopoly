@@ -4569,3 +4569,237 @@ body {
     padding-left: 0;
   }
 }
+
+/* ---------- Auctions ---------- */
+
+.auction__lot {
+  display: grid;
+  justify-items: center;
+  gap: 0.15em;
+  margin: 0.8em 1em 0;
+  overflow: hidden;
+  border: 0.1em solid var(--ink);
+  border-radius: 0.7em;
+  background: #fff;
+}
+
+.auction__band {
+  width: 100%;
+  height: 0.7em;
+  background: var(--accent);
+}
+
+.auction__name {
+  margin-top: 0.3em;
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 1.4em;
+  text-transform: uppercase;
+}
+
+.auction__price {
+  margin-bottom: 0.5em;
+  font-size: 0.85em;
+  color: var(--ink-soft);
+}
+
+.auction__high {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45em;
+  margin: 0.7em 1em 0;
+  font-size: 0.95em;
+  text-align: center;
+}
+
+.auction__high strong {
+  font-family: var(--font-display);
+  font-size: 1.35em;
+  color: #137a42;
+}
+
+.auction__bidders {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.35em;
+  margin: 0.7em 1em 0;
+  padding: 0;
+  list-style: none;
+}
+
+.auction__bidders li {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3em;
+  padding: 0.2em 0.6em 0.2em 0.2em;
+  border-radius: 99px;
+  background: rgb(28 26 22 / 0.06);
+  font-size: 0.8em;
+  font-weight: 700;
+}
+
+.auction__bidders li.is-up {
+  background: var(--danfo);
+  box-shadow: 0 0 0 0.1em var(--ink);
+}
+
+.auction__token {
+  width: 1.5em;
+  height: 1.5em;
+}
+
+.auction__controls {
+  display: grid;
+  gap: 0.5em;
+  padding: 0.9em 1em 1em;
+}
+
+.auction__quick {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.4em;
+}
+
+.auction__quick .tradecard__btn {
+  justify-content: center;
+}
+
+.auction__quick .tradecard__btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.auction__custom {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.5em;
+  align-items: center;
+}
+
+.auction__custom .deal__stepper {
+  justify-self: stretch;
+  justify-content: space-between;
+  font-size: 0.95em;
+}
+
+.auction__custom .reveal__ok:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.auction__drop {
+  justify-content: center;
+  color: #9a1d12;
+  border-color: #9a1d12;
+}
+
+/* ---------- Saved games: delete / leave ---------- */
+
+.saved__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 6px;
+}
+
+.saved__head .saved__title {
+  margin: 0;
+}
+
+.saved__more {
+  border: 0;
+  background: none;
+  color: var(--danfo);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.saved__row {
+  display: flex;
+  gap: 6px;
+}
+
+.saved__row .saved__game {
+  flex: 1;
+  min-width: 0;
+}
+
+.saved__del {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 46px;
+  border: 1px solid rgb(255 255 255 / 0.1);
+  border-radius: 16px;
+  background: rgb(255 255 255 / 0.04);
+  color: rgb(244 239 226 / 0.6);
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.saved__del:hover {
+  background: rgb(216 56 43 / 0.25);
+  color: #fff;
+}
+
+.saved__del:focus-visible {
+  outline: 3px solid var(--danfo);
+  outline-offset: 2px;
+}
+
+.saved__confirm {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: #fde8e6;
+  color: #7a1a10;
+  font-size: 14px;
+  font-weight: 600;
+  animation: feed-in 160ms ease-out;
+}
+
+.saved__confirm span {
+  flex: 1;
+}
+
+.saved__confirm button {
+  flex: none;
+  height: 36px;
+  padding: 0 14px;
+  border-radius: 10px;
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.saved__confirm-yes {
+  border: 0;
+  background: var(--red);
+  color: #fff;
+}
+
+.saved__confirm-no {
+  border: 1.5px solid #7a1a10;
+  background: transparent;
+  color: #7a1a10;
+}
+
+.saved__confirm button:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+@media (max-width: 520px) {
+  .saved__confirm {
+    flex-wrap: wrap;
+  }
+  .saved__confirm span {
+    flex-basis: 100%;
+  }
+}

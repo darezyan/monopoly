@@ -17,6 +17,8 @@ export type SavedGame = {
 export type GameSummary = {
   id: string
   updatedAt: string
+  /** The player who created it; only they can delete it */
+  createdBy: string
   status: GameStatus
   code: string | null
   /** Null while an online room is still in its lobby */
@@ -131,17 +133,36 @@ export async function listMyGames(limit = 6): Promise<GameSummary[]> {
   await ensureSession()
   const { data, error } = await supabase!
     .from('games')
-    .select('id, updated_at, status, code, state')
+    .select('id, updated_at, created_by, status, code, state')
     .order('updated_at', { ascending: false })
     .limit(limit)
   if (error) throw error
   return data.map((row) => ({
     id: row.id,
     updatedAt: row.updated_at,
+    createdBy: row.created_by,
     status: row.status,
     code: row.code,
     state: row.status === 'lobby' ? null : upgradeState(row.state as GameState),
   }))
+}
+
+/**
+ * Delete a game you created, freeing its space: its move log and seats go with it
+ * (the database cascades). For an online room, it's gone for everyone in it.
+ */
+export async function deleteGame(id: string) {
+  await ensureSession()
+  const { data, error } = await supabase!.from('games').delete().eq('id', id).select('id')
+  if (error) throw error
+  if (data.length === 0) throw new Error('Only the person who created a game can delete it')
+}
+
+/** Leave an online game someone else created; it disappears from your list. */
+export async function leaveGame(id: string) {
+  const me = await myUserId()
+  const { error } = await supabase!.from('game_players').delete().eq('game_id', id).eq('user_id', me)
+  if (error) throw error
 }
 
 // ---------- Online rooms ----------
