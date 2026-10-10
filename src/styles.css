@@ -4389,3 +4389,78 @@ body {
     width: 100%;
   }
 }
+
+/* History: deals open up to show their terms */
+
+.history__event--deal {
+  width: 100%;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  grid-template-columns: 24px 1fr auto auto;
+}
+
+.history__event--deal:hover {
+  background: rgb(28 26 22 / 0.03);
+}
+
+.history__deal + .history__event,
+.history__event + .history__deal,
+.history__deal + .history__deal {
+  border-top: 1px solid rgb(28 26 22 / 0.06);
+}
+
+.history__outcome {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px 6px 3px 9px;
+  border-radius: 99px;
+  background: rgb(28 26 22 / 0.07);
+  font-size: 11.5px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.history__outcome svg {
+  transition: rotate 160ms ease;
+}
+
+.history__deal.is-open .history__outcome svg {
+  rotate: 180deg;
+}
+
+.history__outcome--accepted {
+  background: #dff3e7;
+  color: #137a42;
+}
+
+.history__outcome--declined,
+.history__outcome--failed {
+  background: #fde8e6;
+  color: #b42318;
+}
+
+.history__outcome--offered,
+.history__outcome--countered {
+  background: rgb(245 197 24 / 0.3);
+  color: #6b5200;
+}
+
+.history__terms {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  margin: 0 12px 12px;
+  border-radius: 12px;
+  background: var(--paper);
+  box-shadow: inset 0 0 0 1px rgb(28 26 22 / 0.08);
+  font-size: 14px;
+  animation: feed-in 180ms ease-out;
+}
+
+.history__terms .tradecard__col + .tradecard__col {
+  border-left: 1px dashed rgb(28 26 22 / 0.2);
+}

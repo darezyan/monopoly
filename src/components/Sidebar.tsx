@@ -247,7 +247,8 @@ export function canTrade(game: Game): boolean {
   return (
     !state.trade &&
     !state.drawn &&
-    (state.phase === 'idle' || state.phase === 'landed') &&
+    state.phase === 'idle' &&
+    !state.rolledThisTurn &&
     game.controls(state.current) &&
     state.players.some((p) => p.id !== state.current && !p.bankrupt)
   )

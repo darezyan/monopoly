@@ -40,7 +40,11 @@ export function BoardTile({ tile, index, active, landed, owner, level, mortgaged
       onMouseLeave={() => onHover(null)}
       onFocus={() => onHover(index)}
       onBlur={() => onHover(null)}
-      onClick={() => onSelect(index)}
+      onClick={(e) => {
+        onSelect(index)
+        // A mouse click shouldn't leave focus here, or Space would toggle the tile instead of rolling
+        if (e.detail > 0) e.currentTarget.blur()
+      }}
       aria-label={owner ? `${tile.name}, owned by ${owner.name}` : tile.name}
     >
       {corner ? <CornerContent tile={tile} /> : <SideContent tile={tile} owner={owner} level={level} mortgaged={mortgaged} />}

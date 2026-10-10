@@ -68,7 +68,11 @@ function sections(settings: GameSettings): Section[] {
           <li>Once you own a full colour set, tap one of its properties to build houses.</li>
           <li>Four houses, then a hotel. Every building pushes the rent way up.</li>
           {settings.evenBuild && <li>You have to build evenly across the set.</li>}
-          <li>Sell buildings back to the bank for half what you paid.</li>
+          <li>
+            Build, pay off mortgages and make deals <b>before you roll</b>. Once the dice are thrown, they wait for your
+            next turn.
+          </li>
+          <li>Sell any house or hotel back to the bank for half what you paid, any time on your turn.</li>
         </ul>
       ),
     },

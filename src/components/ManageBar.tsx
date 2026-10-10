@@ -21,8 +21,11 @@ export function ManageBar({ game, index }: { game: Game; index: number }) {
   const buildWhy = buildBlocker(state, index)
   const sellWhy = sellBlocker(state, index)
   const mortgageWhy = mortgaged ? unmortgageBlocker(state, index) : mortgageBlocker(state, index)
-  // Explain the most useful disabled button: building first, then mortgaging
-  const hint = (tile.kind === 'property' && !mortgaged && built < HOTEL && buildWhy) || mortgageWhy
+  // Explain the most useful disabled button: building, then selling, then mortgaging
+  const hint =
+    (tile.kind === 'property' && !mortgaged && built < HOTEL && buildWhy) ||
+    (built > 0 && sellWhy) ||
+    mortgageWhy
 
   return (
     <div className="manage">
