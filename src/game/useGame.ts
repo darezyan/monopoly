@@ -71,12 +71,13 @@ export function useGame() {
   latest.current = state
 
   const current = state.players[state.current]
-  /** Whether this device controls the player whose turn it is */
-  const myTurn = online
-    ? current.userId === online.me || (!!current.robot && online.hostId === online.me)
-    : !current.robot
+  /** A human at this device should be making the current decision (shows the controls) */
+  const myTurn = online ? current.userId === online.me : !current.robot
+  /** This device plays the robots: always offline, only the host's device online */
+  const runsRobots = !online || online.hostId === online.me
+  const robotHere = !!current.robot && runsRobots
   /** Whether this device should be the one saving the shared state right now */
-  const iSave = !online || myTurn
+  const iSave = !online || myTurn || robotHere
 
   const stopOnline = useCallback(() => {
     liveAttempt.current++
@@ -277,7 +278,7 @@ export function useGame() {
 
   // Robots take their turns on their own (online, the host's device plays them).
   useEffect(() => {
-    if (sync === 'loading' || !myTurn || inboxSize > 0) return
+    if (sync === 'loading' || !robotHere || inboxSize > 0) return
     const move = robotMove(state)
     if (!move) return
     const t = setTimeout(() => {
@@ -286,7 +287,7 @@ export function useGame() {
       if (choice) act(choice)
     }, ROBOT_MS)
     return () => clearTimeout(t)
-  }, [state, sync, myTurn, inboxSize, act])
+  }, [state, sync, robotHere, inboxSize, act])
 
   const roll = useCallback(() => act({ type: 'roll', dice: rollDice() }), [act])
   const endTurn = useCallback(() => act({ type: 'endTurn' }), [act])
