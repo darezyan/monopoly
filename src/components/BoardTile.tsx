@@ -4,6 +4,21 @@ import type { Player } from '../game/game'
 import { iconFor } from './TileIcon'
 import { inkFor } from './Token'
 
+/**
+ * Where long words may break on small boards (soft hyphens: invisible unless the word
+ * doesn't fit, so big boards show them whole).
+ */
+const SOFT_BREAKS: Record<string, string> = {
+  Ajegunle: 'Aje\u00adgunle',
+  Surulere: 'Suru\u00adlere',
+  Gbagada: 'Gba\u00adgada',
+  Victoria: 'Victo\u00adria',
+  Parkview: 'Park\u00adview',
+  Osborne: 'Os\u00adborne',
+  Atlantic: 'Atlan\u00adtic',
+}
+const breakable = (name: string) => name.replace(/[A-Za-z]+/g, (word) => SOFT_BREAKS[word] ?? word)
+
 export type Side = 'bottom' | 'left' | 'top' | 'right'
 
 /** Grid position and facing for each of the 40 squares on an 11×11 grid. */
@@ -72,7 +87,7 @@ function SideContent({ tile, owner, level, mortgaged }: { tile: Tile; owner?: Pl
           )}
         </div>
       )}
-      <div className="tile__name">{tile.name}</div>
+      <div className="tile__name">{breakable(tile.name)}</div>
       {Icon && (
         <div className="tile__icon">
           <Icon strokeWidth={1.75} />

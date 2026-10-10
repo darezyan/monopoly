@@ -2,39 +2,46 @@ import { JAIL_INDEX, type Player } from '../game/game'
 import { placement } from './BoardTile'
 import { TokenDisc } from './Token'
 
-// Board grid is 1.6fr + 9×1fr + 1.6fr on each axis.
-const CORNER = 1.6
-const TOTAL = CORNER * 2 + 9
+// Board grid is corner + 9 squares + corner on each axis. The corner size comes from CSS
+// (--corner, slimmer on small boards), so positions are worked out in CSS too:
+// a length is `c` corners plus `k` squares.
+type Units = { c: number; k: number }
 
-function cellStart(n: number) {
-  return n === 1 ? 0 : CORNER + (n - 2)
+function cellStart(n: number): Units {
+  return n === 1 ? { c: 0, k: 0 } : { c: 1, k: n - 2 }
 }
-function cellSize(n: number) {
-  return n === 1 || n === 11 ? CORNER : 1
+function cellSize(n: number): Units {
+  return n === 1 || n === 11 ? { c: 1, k: 0 } : { c: 0, k: 1 }
 }
-const pct = (units: number) => (units / TOTAL) * 100
+const centre = (n: number): Units => {
+  const start = cellStart(n)
+  const size = cellSize(n)
+  return { c: start.c + size.c / 2, k: start.k + size.k / 2 }
+}
+/** A CSS percentage of the board for a length in corner/square units. */
+const pct = ({ c, k }: Units) => `calc((${c} * var(--corner) + ${k}) / (2 * var(--corner) + 9) * 100%)`
 
-/** Where a token sits on a square, in % of the board, nudged away from the colour band. */
-function anchor(player: Player): { x: number; y: number } {
+/** Where a token sits on a square, nudged away from the colour band. */
+function anchor(player: Player): { x: Units; y: Units } {
   const { position } = player
   if (position === JAIL_INDEX) {
     // In the cell (inner top-right of the corner) or walking past on the outer edge
     return player.inJail
-      ? { x: pct(CORNER * 0.64), y: pct(TOTAL - CORNER * 0.64) }
-      : { x: pct(CORNER * 0.3), y: pct(TOTAL - CORNER * 0.3) }
+      ? { x: { c: 0.64, k: 0 }, y: { c: 2 - 0.64, k: 9 } }
+      : { x: { c: 0.3, k: 0 }, y: { c: 2 - 0.3, k: 9 } }
   }
 
   const { row, col, side, corner } = placement(position)
-  let x = cellStart(col) + cellSize(col) / 2
-  let y = cellStart(row) + cellSize(row) / 2
+  const x = centre(col)
+  const y = centre(row)
   if (!corner) {
     const nudge = 0.22
-    if (side === 'bottom') y += nudge
-    if (side === 'top') y -= nudge
-    if (side === 'left') x -= nudge
-    if (side === 'right') x += nudge
+    if (side === 'bottom') y.k += nudge
+    if (side === 'top') y.k -= nudge
+    if (side === 'left') x.k -= nudge
+    if (side === 'right') x.k += nudge
   }
-  return { x: pct(x), y: pct(y) }
+  return { x, y }
 }
 
 /**
@@ -74,8 +81,8 @@ export function Tokens({ players, current }: { players: Player[]; current: numbe
             key={p.id}
             className={`token${p.id === current ? ' is-current' : ''}`}
             style={{
-              left: `${x}%`,
-              top: `${y}%`,
+              left: pct(x),
+              top: pct(y),
               transform: `translate(calc(-50% + ${dx * 100}%), calc(-50% + ${dy * 100}%)) scale(${scale})`,
             }}
           >
