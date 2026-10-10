@@ -8,6 +8,9 @@ import {
   groupIndexes,
   isBuyable,
   level,
+  loanBlocker,
+  loanHeadroom,
+  LOAN_LAPS,
   mortgageBlocker,
   ownsGroup,
   rollDice,
@@ -56,6 +59,14 @@ export function robotMove(state: GameState): Action | null {
   if (state.phase === 'idle' && !state.rolledThisTurn) {
     const deal = pickDeal(state, me.id)
     if (deal) return deal
+  }
+
+  // Pay a bank loan back when comfortable, more urgently as the deadline nears
+  if (me.loan && !loanBlocker(state)) {
+    const urgent = me.loan.laps >= LOAN_LAPS - 1
+    const keep = urgent ? 0 : reserve + 100
+    const amount = Math.floor(Math.min(me.loan.balance, me.cash - keep) / 10) * 10
+    if (amount > 0 && (urgent || amount === me.loan.balance)) return { type: 'repayLoan', amount }
   }
 
   if (skill !== 'easy') {
@@ -139,6 +150,13 @@ function raiseMoney(state: GameState): Action | null {
     .filter((i) => mortgageBlocker(state, i) === null)
     .sort((a, b) => (BOARD[a] as BuyableTile).price - (BOARD[b] as BuyableTile).price)
   if (mortgageable.length > 0) return { type: 'mortgage', index: mortgageable[0] }
+
+  // Last resort before bankruptcy: borrow from the bank, if that house rule is on
+  const headroom = loanHeadroom(state, me.id)
+  if (headroom > 0 && !loanBlocker(state)) {
+    const needed = Math.ceil(-me.cash / 10) * 10
+    if (needed > 0 && needed <= headroom) return { type: 'borrow', amount: needed }
+  }
 
   return null
 }
