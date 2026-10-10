@@ -46,6 +46,10 @@ async function ensureSession() {
   const { data } = await supabase!.auth.getSession()
   if (data.session) return
   const { error } = await supabase!.auth.signInAnonymously()
+  if (error?.status === 429) {
+    // Supabase caps new guest accounts per hour from one network (e.g. everyone on the same WiFi)
+    throw new Error('Too many new players from this network right now. Wait a few minutes and try again.')
+  }
   if (error) throw error
 }
 
