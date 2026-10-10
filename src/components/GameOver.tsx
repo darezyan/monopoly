@@ -1,10 +1,10 @@
-import { RotateCcw, Trophy } from 'lucide-react'
+import { ArrowLeft, RotateCcw, Trophy } from 'lucide-react'
 import { naira } from '../data/board'
 import { netWorth } from '../game/game'
 import type { Game } from '../game/useGame'
 import { TokenDisc } from './Token'
 
-export function GameOver({ game }: { game: Game }) {
+export function GameOver({ game, onExit }: { game: Game; onExit: () => void }) {
   const { state } = game
   const winner = state.players[state.winner!]
   // Winner first, then everyone else by what they were worth (bankrupt players last)
@@ -28,9 +28,15 @@ export function GameOver({ game }: { game: Game }) {
           </li>
         ))}
       </ol>
-      <button className="reveal__ok gameover__again" onClick={game.newGame}>
-        <RotateCcw size={16} /> Play again
-      </button>
+      {game.online ? (
+        <button className="reveal__ok gameover__again" onClick={onExit}>
+          <ArrowLeft size={16} /> Back to menu
+        </button>
+      ) : (
+        <button className="reveal__ok gameover__again" onClick={game.newGame}>
+          <RotateCcw size={16} /> Play again
+        </button>
+      )}
     </div>
   )
 }

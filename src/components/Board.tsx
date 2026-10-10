@@ -16,9 +16,10 @@ type Props = {
   /** Deed held open in the centre (lifted so the portfolio panel can open deeds too) */
   pinned: number | null
   onPin: (index: number | null) => void
+  onExit: () => void
 }
 
-export function Board({ game, pinned, onPin }: Props) {
+export function Board({ game, pinned, onPin, onExit }: Props) {
   const { state } = game
   const [hovered, setHovered] = useState<number | null>(null)
   const shown = hovered ?? pinned ?? state.pendingPurchase
@@ -28,7 +29,7 @@ export function Board({ game, pinned, onPin }: Props) {
   const shownTile = shown === null ? null : BOARD[shown]
   // Management buttons only make sense on the current player's own deed, once it's pinned open
   const canManage =
-    shown !== null && shown === pinned && state.owners[shown] === state.current && !game.robotTurn
+    shown !== null && shown === pinned && state.owners[shown] === state.current && game.myTurn
 
   return (
     <div className="board-wrap">
@@ -72,7 +73,7 @@ export function Board({ game, pinned, onPin }: Props) {
             )}
           </div>
 
-          {state.winner !== null && <GameOver game={game} />}
+          {state.winner !== null && <GameOver game={game} onExit={onExit} />}
 
           {state.drawn && (
             <CardReveal

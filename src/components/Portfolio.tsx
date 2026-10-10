@@ -35,11 +35,13 @@ type Props = {
   onClose: () => void
   /** Open a deed on the board (for managing your own properties) */
   onOpenDeed: (index: number) => void
+  /** Whether this device may build and mortgage for the current player */
+  canManage: boolean
 }
 
-export function Portfolio({ state, playerId, onClose, onOpenDeed }: Props) {
+export function Portfolio({ state, playerId, onClose, onOpenDeed, canManage }: Props) {
   const player = state.players[playerId]
-  const mine = playerId === state.current && !player.robot
+  const mine = playerId === state.current && canManage
   const owned = BOARD.filter((_, i) => state.owners[i] === playerId).length
   const { houses, hotels } = buildingsOf(state, playerId)
 

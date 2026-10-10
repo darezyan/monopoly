@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { AlertTriangle, ArrowLeft, Bot, ChevronRight, Dices, Handshake, KeyRound, LayoutGrid, Lock } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, Bot, ChevronRight, Dices, Handshake, Hourglass, KeyRound, LayoutGrid, Lock } from 'lucide-react'
 import { BOARD, GROUP_COLORS, naira, type Tile } from '../data/board'
 import type { Game, SyncStatus } from '../game/useGame'
 import { TopControls } from './TopControls'
@@ -23,7 +23,7 @@ export function Sidebar({ game, onOpenPortfolio, onExit }: Props) {
         <SyncBadge sync={game.sync} />
         <TopControls settings={state.settings} />
       </div>
-      <TurnCard game={game} onOpenPortfolio={onOpenPortfolio} />
+      <TurnCard game={game} onOpenPortfolio={onOpenPortfolio} onExit={onExit} />
       <div className={`players${state.players.length > 4 ? ' players--compact' : ''}`}>
         {state.players.map((p) => (
           <PlayerCard
@@ -31,6 +31,8 @@ export function Sidebar({ game, onOpenPortfolio, onExit }: Props) {
             player={p}
             active={p.id === state.current}
             state={state}
+            presence={!game.online || !p.userId ? null : game.online.peers.has(p.userId)}
+            isMe={!!game.online && p.userId === game.online.me}
             onOpen={() => onOpenPortfolio(p.id)}
           />
         ))}
@@ -46,6 +48,7 @@ const SYNC_LABEL: Record<SyncStatus, string> = {
   loading: 'Loading game…',
   saving: 'Saving…',
   saved: 'Saved',
+  live: 'Live',
   error: 'Couldn’t save',
 }
 
@@ -86,11 +89,11 @@ function statusText(state: GameState): string {
   }
 }
 
-function TurnCard({ game, onOpenPortfolio }: Omit<Props, 'onExit'>) {
+function TurnCard({ game, onOpenPortfolio, onExit }: Props) {
   const { state, sync } = game
   const player = state.players[state.current]
   const busy = state.phase === 'rolling' || state.phase === 'moving' || sync === 'loading'
-  const inDebt = player.cash < 0 && (state.phase === 'idle' || state.phase === 'landed') && !player.robot
+  const inDebt = player.cash < 0 && (state.phase === 'idle' || state.phase === 'landed') && game.myTurn
   const ownsSomething = Object.values(state.owners).includes(player.id)
 
   if (state.phase === 'over') {
@@ -105,9 +108,15 @@ function TurnCard({ game, onOpenPortfolio }: Omit<Props, 'onExit'>) {
           </div>
         </div>
         <p className="turn__status">{statusText(state)}</p>
-        <button className="turn__btn" onClick={game.newGame}>
-          Play again
-        </button>
+        {game.online ? (
+          <button className="turn__btn" onClick={onExit}>
+            Back to menu
+          </button>
+        ) : (
+          <button className="turn__btn" onClick={game.newGame}>
+            Play again
+          </button>
+        )}
       </section>
     )
   }
@@ -136,11 +145,12 @@ function TurnCard({ game, onOpenPortfolio }: Omit<Props, 'onExit'>) {
         </div>
       </div>
       <p className="turn__status" aria-live="polite">
-        {player.robot ? robotStatus(state) : statusText(state)}
+        {game.waiting ? othersStatus(state) : statusText(state)}
       </p>
-      {player.robot ? (
+      {game.waiting ? (
         <div className="turn__robot">
-          <Bot size={18} /> {player.name} dey think…
+          {player.robot ? <Bot size={18} /> : <Hourglass size={18} />}
+          {player.robot ? `${player.name} dey think…` : `Waiting for ${player.name}`}
           <span className="dots" aria-hidden>
             <i />
             <i />
@@ -178,7 +188,7 @@ function TurnCard({ game, onOpenPortfolio }: Omit<Props, 'onExit'>) {
           )}
         </>
       )}
-      {ownsSomething && !inDebt && !player.robot && (
+      {ownsSomething && !inDebt && game.myTurn && (
         <button className="turn__link" onClick={() => onOpenPortfolio(player.id)}>
           <LayoutGrid size={15} /> Your properties
           <ChevronRight size={15} />
@@ -188,8 +198,8 @@ function TurnCard({ game, onOpenPortfolio }: Omit<Props, 'onExit'>) {
   )
 }
 
-/** What a robot is up to, in the third person */
-function robotStatus(state: GameState): string {
+/** What the player in control is up to, when it isn't you */
+function othersStatus(state: GameState): string {
   const player = state.players[state.current]
   const last = state.events.find((e) => e.playerId === player.id)
   if (state.phase === 'rolling') return 'Rolling…'
@@ -278,9 +288,17 @@ function tileColor(tile: Tile) {
   return '#1c1a16'
 }
 
-type PlayerCardProps = { player: Player; active: boolean; state: GameState; onOpen: () => void }
+type PlayerCardProps = {
+  player: Player
+  active: boolean
+  state: GameState
+  /** Online games: whether this human is connected right now (null when not applicable) */
+  presence: boolean | null
+  isMe: boolean
+  onOpen: () => void
+}
 
-function PlayerCard({ player, active, state, onOpen }: PlayerCardProps) {
+function PlayerCard({ player, active, state, presence, isMe, onOpen }: PlayerCardProps) {
   const shown = useAnimatedNumber(player.cash)
   // Latest money event for this player drives the floating +/− badge
   const lastMoney = state.events.find((e) => e.playerId === player.id && e.amount !== undefined)
@@ -293,10 +311,16 @@ function PlayerCard({ player, active, state, onOpen }: PlayerCardProps) {
       onClick={onOpen}
       aria-label={`${player.name}: see properties`}
     >
-      <TokenDisc player={player} />
+      <span className="player__avatar">
+        <TokenDisc player={player} />
+        {presence !== null && (
+          <span className={`player__presence${presence ? ' is-on' : ''}`} title={presence ? 'Online' : 'Away'} />
+        )}
+      </span>
       <span className="player__meta">
         <span className="player__name">
           {player.name}
+          {isMe && <span className="player__badge player__badge--me">You</span>}
           {player.robot && (
             <span className="player__badge player__badge--bot" title={`${player.robot} robot`}>
               <Bot size={11} strokeWidth={2.5} /> <span className="player__badge-text">{player.robot}</span>
