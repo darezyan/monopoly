@@ -148,7 +148,10 @@ function TurnCard({ game, onOpenPortfolio, onOpenTrade, onExit }: Omit<Props, 'o
           </div>
         </div>
         <p className="turn__status" aria-live="polite">
-          {state.players[t.proposer].name} offered {state.players[t.responder].name} a deal. Check the board.
+          {t.counters > 0
+            ? `${state.players[t.proposer].name} came back to ${state.players[t.responder].name} with a counter-offer.`
+            : `${state.players[t.proposer].name} offered ${state.players[t.responder].name} a deal.`}{' '}
+          Check the board.
         </p>
       </section>
     )
