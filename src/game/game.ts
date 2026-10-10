@@ -13,7 +13,7 @@ export type GameSettings = {
   startingCash: number
   /** Owners still collect rent while they're in Kirikiri */
   rentInJail: boolean
-  /** Houses must be built and sold evenly across a colour group */
+  /** Houses must be built evenly across a colour group (selling is always allowed) */
   evenBuild: boolean
   /** Only 32 houses and 12 hotels exist; when they run out, nobody can build */
   limitedBuildings: boolean
@@ -67,7 +67,13 @@ export type GameEvent = {
   amount?: number
   /** Which turn of the game this happened on (1 = the first player's first turn) */
   turn?: number
+  /** For deal events: the full terms, so the history can show them */
+  deal?: DealRecord
 }
+
+export type DealOutcome = 'offered' | 'countered' | 'accepted' | 'declined' | 'withdrawn' | 'failed'
+
+export type DealRecord = { proposer: number; responder: number; give: Bundle; get: Bundle; outcome: DealOutcome }
 
 /** Generous cap so even very long games keep their whole story without bloating saves */
 const MAX_EVENTS = 2000
@@ -83,6 +89,8 @@ export type GameState = {
   stepsLeft: number
   /** Whether the current player gets another roll after this one */
   rollAgain: boolean
+  /** The current player has rolled this turn: building, paying off mortgages and deals are closed */
+  rolledThisTurn: boolean
   /** Third doubles in a row: go to jail once the dice settle */
   jailPending: boolean
   /** Tile index → id of the player who owns it */
@@ -108,6 +116,10 @@ export type GameState = {
   winner: number | null
   /** A deal waiting for an answer; play pauses until it's settled */
   trade: Trade | null
+  /** Player id → turn they last proposed a deal on (robots use it to avoid pestering) */
+  proposedOnTurn: Record<number, number>
+  /** How many times each proposer → responder → properties deal has been turned down */
+  refusals: Record<string, number>
   /** Count of player decisions applied so far; online clients use it to stay in step */
   seq: number
   /** Turn number, for grouping the history; goes up each time play passes to the next player */
@@ -183,6 +195,7 @@ export function createGame(seats: Seat[] = DEFAULT_SEATS, settings: GameSettings
     doublesStreak: 0,
     stepsLeft: 0,
     rollAgain: false,
+    rolledThisTurn: false,
     jailPending: false,
     owners: {},
     buildings: {},
@@ -196,6 +209,8 @@ export function createGame(seats: Seat[] = DEFAULT_SEATS, settings: GameSettings
     cardRent: null,
     winner: null,
     trade: null,
+    proposedOnTurn: {},
+    refusals: {},
     seq: 0,
     turn: 1,
     events: [],
@@ -239,8 +254,8 @@ export const rollDice = (): [number, number] => [
 
 // ---------- Small state helpers ----------
 
-function log(state: GameState, playerId: number, text: string, amount?: number): GameState {
-  const event: GameEvent = { id: state.nextEventId, playerId, text, amount, turn: state.turn }
+function log(state: GameState, playerId: number, text: string, amount?: number, deal?: DealRecord): GameState {
+  const event: GameEvent = { id: state.nextEventId, playerId, text, amount, turn: state.turn, ...(deal && { deal }) }
   return { ...state, events: [event, ...state.events].slice(0, MAX_EVENTS), nextEventId: state.nextEventId + 1 }
 }
 
@@ -359,6 +374,7 @@ export function buildBlocker(state: GameState, index: number): string | null {
   if (tile.kind !== 'property') return 'Only properties take houses'
   const manage = canManage(state, index)
   if (manage) return manage
+  if (state.rolledThisTurn) return 'Build before you roll. Next turn!'
   if (!ownsGroup(state, state.current, tile.group)) return 'Own the whole colour set first'
   const group = groupIndexes(tile.group)
   if (group.some((i) => state.mortgaged[i])) return 'Pay off mortgages in this set first'
@@ -379,13 +395,9 @@ export function sellBlocker(state: GameState, index: number): string | null {
   if (tile.kind !== 'property') return 'Nothing to sell'
   const manage = canManage(state, index)
   if (manage) return manage
-  const built = level(state, index)
-  if (built === 0) return 'No buildings here'
-  const group = groupIndexes(tile.group)
-  if (state.settings.evenBuild && built < Math.max(...group.map((i) => level(state, i))))
-    return 'Sell evenly across the set'
-  if (built === HOTEL && state.settings.limitedBuildings && state.bank.houses < 4)
-    return 'The bank needs 4 houses to swap for the hotel'
+  // Any house or hotel can be sold back for half price at any point in your turn; "build evenly"
+  // only governs building.
+  if (level(state, index) === 0) return 'No buildings here'
   return null
 }
 
@@ -406,6 +418,7 @@ export function unmortgageBlocker(state: GameState, index: number): string | nul
   const manage = canManage(state, index)
   if (manage) return manage
   if (!state.mortgaged[index]) return 'Not mortgaged'
+  if (state.rolledThisTurn) return 'Pay off mortgages before you roll'
   if (state.players[state.current].cash < unmortgageCost(tile)) return 'Not enough money'
   return null
 }
@@ -645,6 +658,7 @@ function declareBankruptcy(state: GameState): GameState {
     moveDir: 1,
     current: nextPlayerId(state),
     turn: state.turn + 1,
+    rolledThisTurn: false,
   }
 }
 
@@ -695,6 +709,12 @@ export const tradeInterest = (deeds: number[], state: GameState) =>
     .filter((i) => state.mortgaged[i])
     .reduce((sum, i) => sum + Math.ceil((BOARD[i] as BuyableTile).price / 20), 0)
 
+const dealTerms = (t: Trade) => ({ proposer: t.proposer, responder: t.responder, give: t.give, get: t.get })
+
+/** Identifies "the same deal" across attempts: who asks whom, for which properties */
+export const dealKey = (proposer: number, responder: number, wanted: number[]) =>
+  `${proposer}>${responder}:${[...wanted].sort((a, b) => a - b).join(',')}`
+
 function describeBundle(b: Bundle): string {
   const parts = b.deeds.map((i) => BOARD[i].name)
   if (b.cash > 0) parts.push(naira(b.cash))
@@ -721,7 +741,10 @@ function executeTrade(state: GameState, t: Trade): GameState {
   state = updatePlayer(state, b, { jailFree: [...pb.jailFree.slice(get.jailCards), ...fromA] })
 
   const nameB = state.players[b].name
-  state = log(state, a, `traded with ${nameB}: gave ${describeBundle(give)}, got ${describeBundle(get)}`)
+  state = log(state, a, `traded with ${nameB}: gave ${describeBundle(give)}, got ${describeBundle(get)}`, undefined, {
+    ...dealTerms(t),
+    outcome: 'accepted',
+  })
 
   // Interest on mortgaged deeds received
   const interestA = tradeInterest(get.deeds, state)
@@ -735,31 +758,48 @@ function tradeReducer(state: GameState, action: Action): GameState {
   const t = state.trade
   switch (action.type) {
     case 'proposeTrade': {
-      if (t || (state.phase !== 'idle' && state.phase !== 'landed') || state.drawn) return state
+      // Deals are made before rolling; once the dice are thrown they're closed until next turn
+      if (t || state.phase !== 'idle' || state.rolledThisTurn || state.drawn) return state
       if (tradeProblem(state, state.current, action.to, action.give, action.get)) return state
       const trade: Trade = { proposer: state.current, responder: action.to, give: action.give, get: action.get, counters: 0 }
-      return log({ ...state, trade }, state.current, `offered ${state.players[action.to].name} a deal`)
+      const proposedOnTurn = { ...state.proposedOnTurn, [state.current]: state.turn }
+      return log({ ...state, trade, proposedOnTurn }, state.current, `offered ${state.players[action.to].name} a deal`, undefined, {
+        ...dealTerms(trade),
+        outcome: 'offered',
+      })
     }
     case 'counterTrade': {
       if (!t || t.counters >= 6) return state
       // The responder becomes the proposer: they now give what they're offering back
       if (tradeProblem(state, t.responder, t.proposer, action.give, action.get)) return state
       const trade: Trade = { proposer: t.responder, responder: t.proposer, give: action.give, get: action.get, counters: t.counters + 1 }
-      return log({ ...state, trade }, t.responder, `came back with a counter-offer`)
+      return log({ ...state, trade }, t.responder, `came back with a counter-offer`, undefined, {
+        ...dealTerms(trade),
+        outcome: 'countered',
+      })
     }
     case 'acceptTrade': {
       if (!t) return state
       if (tradeProblem(state, t.proposer, t.responder, t.give, t.get)) {
-        return log({ ...state, trade: null }, t.responder, 'couldn’t accept: the deal is no longer valid')
+        return log({ ...state, trade: null }, t.responder, 'couldn’t accept: the deal is no longer valid', undefined, {
+          ...dealTerms(t),
+          outcome: 'failed',
+        })
       }
       return executeTrade({ ...state, trade: null }, t)
     }
-    case 'declineTrade':
+    case 'declineTrade': {
       if (!t) return state
-      return log({ ...state, trade: null }, t.responder, `turned down ${state.players[t.proposer].name}’s deal`)
+      const key = dealKey(t.proposer, t.responder, t.get.deeds)
+      const refusals = { ...state.refusals, [key]: (state.refusals[key] ?? 0) + 1 }
+      return log({ ...state, trade: null, refusals }, t.responder, `turned down ${state.players[t.proposer].name}’s deal`, undefined, {
+        ...dealTerms(t),
+        outcome: 'declined',
+      })
+    }
     case 'cancelTrade':
       if (!t) return state
-      return log({ ...state, trade: null }, t.proposer, 'withdrew the offer')
+      return log({ ...state, trade: null }, t.proposer, 'withdrew the offer', undefined, { ...dealTerms(t), outcome: 'withdrawn' })
     default:
       return state
   }
@@ -777,7 +817,13 @@ export function reducer(state: GameState, action: Action): GameState {
       if (state.phase !== 'idle' || player.cash < 0) return state
       const [a, b] = action.dice
       const doubles = a === b
-      const next = { ...state, dice: action.dice, rollCount: state.rollCount + 1, phase: 'rolling' as const }
+      const next = {
+        ...state,
+        dice: action.dice,
+        rollCount: state.rollCount + 1,
+        phase: 'rolling' as const,
+        rolledThisTurn: true,
+      }
 
       if (player.inJail) {
         if (doubles) {
@@ -880,16 +926,26 @@ export function reducer(state: GameState, action: Action): GameState {
       if (sellBlocker(state, index)) return state
       const tile = BOARD[index] as Extract<Tile, { kind: 'property' }>
       const built = level(state, index)
-      const bank = !state.settings.limitedBuildings
+      const limited = state.settings.limitedBuildings
+      // A hotel normally swaps back for 4 houses. If the bank is short, the property drops to
+      // however many houses it can supply, and the owner is paid for the rest (official rule).
+      const after = built === HOTEL ? (limited ? Math.min(4, state.bank.houses) : 4) : built - 1
+      const bank = !limited
         ? state.bank
         : built === HOTEL
-          ? { houses: state.bank.houses - 4, hotels: state.bank.hotels + 1 }
+          ? { houses: state.bank.houses - after, hotels: state.bank.hotels + 1 }
           : { ...state.bank, houses: state.bank.houses + 1 }
-      const buildings = { ...state.buildings, [index]: built - 1 }
-      if (built - 1 === 0) delete buildings[index]
-      const refund = tile.houseCost / 2
+      const buildings = { ...state.buildings, [index]: after }
+      if (after === 0) delete buildings[index]
+      const refund = ((built - after) * tile.houseCost) / 2
       const next = credit({ ...state, bank, buildings }, player.id, refund)
-      return log(next, player.id, built === HOTEL ? `sold the hotel on ${tile.name}` : `sold a house on ${tile.name}`, refund)
+      const text =
+        built !== HOTEL
+          ? `sold a house on ${tile.name}`
+          : after === 4
+            ? `sold the hotel on ${tile.name}`
+            : `sold the hotel on ${tile.name} (the bank only had ${after} house${after === 1 ? '' : 's'} to give back)`
+      return log(next, player.id, text, refund)
     }
 
     case 'mortgage': {
@@ -928,6 +984,7 @@ export function reducer(state: GameState, action: Action): GameState {
         moveDir: 1,
         current: nextPlayerId(state),
         turn: state.turn + 1,
+        rolledThisTurn: false,
       }
     }
 
