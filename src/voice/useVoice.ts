@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { DisconnectReason, Room, RoomEvent, Track, type RemoteParticipant } from 'livekit-client'
+import type { RemoteParticipant, Room } from 'livekit-client'
 import { FunctionsHttpError } from '@supabase/supabase-js'
 import { supabase } from '../lib/supabase'
 
@@ -107,71 +107,75 @@ export function useVoice(requestedId: string | null) {
   useEffect(() => {
     if (!gameId || !supabase) return setStatus('off')
     let cancelled = false
-    const room = new Room({
-      webAudioMix: true,
-      audioCaptureDefaults: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-      publishDefaults: { dtx: true, red: true },
-    })
-    roomRef.current = room
-    // Dev-only console hook for checking the call: __voice.remoteParticipants, __voice.activeSpeakers
-    if (import.meta.env.DEV) (window as unknown as { __voice: Room }).__voice = room
+    let room: Room | null = null
     // Voices play through hidden audio elements
     const sink = document.createElement('div')
     sink.hidden = true
     document.body.appendChild(sink)
 
-    const refresh = () => {
-      const next: Record<string, { micOn: boolean }> = {}
-      room.remoteParticipants.forEach((p) => (next[p.identity] = { micOn: p.isMicrophoneEnabled }))
-      setPeople(next)
-    }
-    const applyLevel = (p: RemoteParticipant) => p.setVolume(levelFor.current(p.identity))
+    setStatus('connecting')
+    setError(null)
+    ;(async () => {
+      // The voice library is only downloaded once someone is in an online room
+      const [lk, pass] = await Promise.all([import('livekit-client'), fetchPass(gameId)])
+      if (cancelled) return
+      if (pass === 'unavailable') return setStatus('unavailable')
+      const { DisconnectReason, Room, RoomEvent, Track } = lk
+      const r = new Room({
+        webAudioMix: true,
+        audioCaptureDefaults: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+        publishDefaults: { dtx: true, red: true },
+      })
+      room = r
+      roomRef.current = r
+      // Dev-only console hook for checking the call: __voice.remoteParticipants, __voice.activeSpeakers
+      if (import.meta.env.DEV) (window as unknown as { __voice: Room }).__voice = r
 
-    room
-      .on(RoomEvent.TrackSubscribed, (track, _pub, participant) => {
+      const refresh = () => {
+        const next: Record<string, { micOn: boolean }> = {}
+        r.remoteParticipants.forEach((p) => (next[p.identity] = { micOn: p.isMicrophoneEnabled }))
+        setPeople(next)
+      }
+      const applyLevel = (p: RemoteParticipant) => p.setVolume(levelFor.current(p.identity))
+
+      r.on(RoomEvent.TrackSubscribed, (track, _pub, participant) => {
         if (track.kind !== Track.Kind.Audio) return
         sink.appendChild(track.attach())
         applyLevel(participant)
         refresh()
       })
-      .on(RoomEvent.TrackUnsubscribed, (track) => {
-        track.detach().forEach((el) => el.remove())
-        refresh()
-      })
-      .on(RoomEvent.ParticipantConnected, refresh)
-      .on(RoomEvent.ParticipantDisconnected, refresh)
-      .on(RoomEvent.TrackPublished, refresh)
-      .on(RoomEvent.TrackUnpublished, refresh)
-      .on(RoomEvent.TrackMuted, refresh)
-      .on(RoomEvent.TrackUnmuted, refresh)
-      .on(RoomEvent.ActiveSpeakersChanged, (speakers) => setSpeaking(new Set(speakers.map((s) => s.identity))))
-      .on(RoomEvent.AudioPlaybackStatusChanged, () => setBlocked(!room.canPlaybackAudio))
-      .on(RoomEvent.Reconnecting, () => setStatus('reconnecting'))
-      .on(RoomEvent.Reconnected, () => setStatus('live'))
-      .on(RoomEvent.MediaDevicesError, (err) => setError(micProblem(err)))
-      .on(RoomEvent.Disconnected, (reason) => {
-        if (cancelled) return
-        setStatus('error')
-        setMicOn(false)
-        setPeople({})
-        setSpeaking(new Set())
-        setError(
-          reason === DisconnectReason.DUPLICATE_IDENTITY
-            ? 'Voice moved to your other tab.'
-            : 'Voice dropped. Tap to rejoin.',
-        )
-      })
+        .on(RoomEvent.TrackUnsubscribed, (track) => {
+          track.detach().forEach((el) => el.remove())
+          refresh()
+        })
+        .on(RoomEvent.ParticipantConnected, refresh)
+        .on(RoomEvent.ParticipantDisconnected, refresh)
+        .on(RoomEvent.TrackPublished, refresh)
+        .on(RoomEvent.TrackUnpublished, refresh)
+        .on(RoomEvent.TrackMuted, refresh)
+        .on(RoomEvent.TrackUnmuted, refresh)
+        .on(RoomEvent.ActiveSpeakersChanged, (speakers) => setSpeaking(new Set(speakers.map((s) => s.identity))))
+        .on(RoomEvent.AudioPlaybackStatusChanged, () => setBlocked(!r.canPlaybackAudio))
+        .on(RoomEvent.Reconnecting, () => setStatus('reconnecting'))
+        .on(RoomEvent.Reconnected, () => setStatus('live'))
+        .on(RoomEvent.MediaDevicesError, (err) => setError(micProblem(err)))
+        .on(RoomEvent.Disconnected, (reason) => {
+          if (cancelled) return
+          setStatus('error')
+          setMicOn(false)
+          setPeople({})
+          setSpeaking(new Set())
+          setError(
+            reason === DisconnectReason.DUPLICATE_IDENTITY
+              ? 'Voice moved to your other tab.'
+              : 'Voice dropped. Tap to rejoin.',
+          )
+        })
 
-    setStatus('connecting')
-    setError(null)
-    ;(async () => {
-      const pass = await fetchPass(gameId)
-      if (cancelled) return
-      if (pass === 'unavailable') return setStatus('unavailable')
-      await room.connect(pass.url, pass.token)
-      if (cancelled) return room.disconnect()
-      setMe(room.localParticipant.identity)
-      setBlocked(!room.canPlaybackAudio)
+      await r.connect(pass.url, pass.token)
+      if (cancelled) return r.disconnect()
+      setMe(r.localParticipant.identity)
+      setBlocked(!r.canPlaybackAudio)
       setStatus('live')
       refresh()
     })().catch((err) => {
@@ -182,8 +186,8 @@ export function useVoice(requestedId: string | null) {
 
     return () => {
       cancelled = true
-      room.removeAllListeners()
-      room.disconnect()
+      room?.removeAllListeners()
+      room?.disconnect()
       sink.remove()
       roomRef.current = null
       wantMic.current = false
