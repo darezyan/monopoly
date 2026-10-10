@@ -67,7 +67,8 @@ export function TradeCard({ game, onCounter }: { game: Game; onCounter: () => vo
   )
 }
 
-function Column({
+/** One side of a deal: who gives what. Shared with the history panel. */
+export function Column({
   title,
   who,
   bundle,

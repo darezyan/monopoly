@@ -1,8 +1,18 @@
 import { useEffect, useMemo, useState } from 'react'
-import { History as HistoryIcon, X } from 'lucide-react'
+import { ChevronDown, History as HistoryIcon, X } from 'lucide-react'
 import { naira } from '../data/board'
-import type { GameEvent, GameState } from '../game/game'
+import type { DealOutcome, GameEvent, GameState } from '../game/game'
 import { TokenDisc } from './Token'
+import { Column } from './TradeCard'
+
+const OUTCOME_LABEL: Record<DealOutcome, string> = {
+  offered: 'Offered',
+  countered: 'Counter-offer',
+  accepted: 'Accepted',
+  declined: 'Declined',
+  withdrawn: 'Withdrawn',
+  failed: 'Fell through',
+}
 
 type Props = {
   state: GameState
@@ -12,6 +22,8 @@ type Props = {
 /** Every event in the game so far, newest turn first, optionally for one player. */
 export function History({ state, onClose }: Props) {
   const [only, setOnly] = useState<number | null>(null)
+  /** The deal event opened up to show its terms */
+  const [openDeal, setOpenDeal] = useState<number | null>(null)
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
@@ -116,8 +128,8 @@ export function History({ state, onClose }: Props) {
                   <ul className="history__events">
                     {[...group.events].reverse().map((e) => {
                       const p = state.players[e.playerId]
-                      return (
-                        <li key={e.id} className="history__event">
+                      const row = (
+                        <>
                           <TokenDisc player={p} className="history__token" />
                           <span className="history__text">
                             <strong>{p.name}</strong> {e.text}
@@ -127,6 +139,44 @@ export function History({ state, onClose }: Props) {
                               {e.amount >= 0 ? '+' : ''}
                               {naira(e.amount)}
                             </span>
+                          )}
+                        </>
+                      )
+                      if (!e.deal) {
+                        return (
+                          <li key={e.id} className="history__event">
+                            {row}
+                          </li>
+                        )
+                      }
+                      const open = openDeal === e.id
+                      const d = e.deal
+                      return (
+                        <li key={e.id} className={`history__deal${open ? ' is-open' : ''}`}>
+                          <button
+                            className="history__event history__event--deal"
+                            onClick={() => setOpenDeal(open ? null : e.id)}
+                            aria-expanded={open}
+                          >
+                            {row}
+                            <span className={`history__outcome history__outcome--${d.outcome}`}>
+                              {OUTCOME_LABEL[d.outcome]}
+                              <ChevronDown size={14} />
+                            </span>
+                          </button>
+                          {open && (
+                            <div className="history__terms">
+                              <Column
+                                title={`${state.players[d.proposer].name} gives`}
+                                who={state.players[d.proposer]}
+                                bundle={d.give}
+                              />
+                              <Column
+                                title={`${state.players[d.responder].name} gives`}
+                                who={state.players[d.responder]}
+                                bundle={d.get}
+                              />
+                            </div>
                           )}
                         </li>
                       )
