@@ -34,7 +34,7 @@ export type GameSettings = {
 
 export const DEFAULT_SETTINGS: GameSettings = {
   startingCash: 1500,
-  rentInJail: true,
+  rentInJail: false,
   evenBuild: true,
   limitedBuildings: true,
   goSlowJackpot: false,
