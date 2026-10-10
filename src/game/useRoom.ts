@@ -58,11 +58,17 @@ export function useRoom(gameId: string, onStarted: () => void) {
         .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'games', filter: `id=eq.${gameId}` }, refresh)
         .on('presence', { event: 'sync' }, () => setOnline(new Set(Object.keys(channel!.presenceState()))))
         .subscribe((status) => {
-          if (status === 'SUBSCRIBED') channel!.track({ at: Date.now() })
+          if (status !== 'SUBSCRIBED') return
+          channel!.track({ at: Date.now() })
+          // Anyone who joined while we were still connecting would otherwise be missed
+          refresh()
         })
     })()
+    // Belt and braces for flaky networks: re-check the seating now and then
+    const poll = setInterval(refresh, 10_000)
     return () => {
       cancelled = true
+      clearInterval(poll)
       if (channel) supabase!.removeChannel(channel)
     }
   }, [gameId, refresh])
