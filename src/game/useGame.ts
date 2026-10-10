@@ -2,6 +2,7 @@ import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { robotMove } from './bot'
 import {
+  actingPlayer,
   applyAction,
   createGame,
   isTick,
@@ -9,6 +10,7 @@ import {
   rollDice,
   seatsOf,
   type Action,
+  type Bundle,
   type GameSettings,
   type GameState,
   type Seat,
@@ -78,12 +80,21 @@ export function useGame() {
   const [speed] = useSpeed()
   const pace = SPEED_FACTOR[speed]
 
-  const current = state.players[state.current]
+  /** Whether a human at this device plays this player */
+  const controls = useCallback(
+    (playerId: number) => {
+      const p = latest.current.players[playerId]
+      return online ? p.userId === online.me : !p.robot
+    },
+    [online],
+  )
+  // The decision the game is waiting on: a deal's responder, otherwise whoever's turn it is
+  const acting = state.players[actingPlayer(state)]
   /** A human at this device should be making the current decision (shows the controls) */
-  const myTurn = online ? current.userId === online.me : !current.robot
+  const myTurn = online ? acting.userId === online.me : !acting.robot
   /** This device plays the robots: always offline, only the host's device online */
   const runsRobots = !online || online.hostId === online.me
-  const robotHere = !!current.robot && runsRobots
+  const robotHere = !!acting.robot && runsRobots
   /** Whether this device should be the one saving the shared state right now */
   const iSave = !online || myTurn || robotHere
 
@@ -321,6 +332,14 @@ export function useGame() {
   const mortgage = useCallback((index: number) => act({ type: 'mortgage', index }), [act])
   const unmortgage = useCallback((index: number) => act({ type: 'unmortgage', index }), [act])
   const declareBankruptcy = useCallback(() => act({ type: 'declareBankruptcy' }), [act])
+  const proposeTrade = useCallback(
+    (to: number, give: Bundle, get: Bundle) => act({ type: 'proposeTrade', to, give, get }),
+    [act],
+  )
+  const counterTrade = useCallback((give: Bundle, get: Bundle) => act({ type: 'counterTrade', give, get }), [act])
+  const acceptTrade = useCallback(() => act({ type: 'acceptTrade' }), [act])
+  const declineTrade = useCallback(() => act({ type: 'declineTrade' }), [act])
+  const cancelTrade = useCallback(() => act({ type: 'cancelTrade' }), [act])
 
   /** Rematch: same players and settings, fresh board (offline / pass-and-play only). */
   const newGame = useCallback(() => start(seatsOf(latest.current), latest.current.settings), [start])
@@ -347,6 +366,12 @@ export function useGame() {
     mortgage,
     unmortgage,
     declareBankruptcy,
+    proposeTrade,
+    counterTrade,
+    acceptTrade,
+    declineTrade,
+    cancelTrade,
+    controls,
     newGame,
   }
 }
