@@ -3,26 +3,14 @@ import { upgradeState, type Action, type GameState } from './game'
 
 export type SavedGame = { id: string; state: GameState; version: number }
 
+export type GameSummary = { id: string; updatedAt: string; state: GameState }
+
 /** Every browser gets a silent anonymous account so it can own games. */
 async function ensureSession() {
   const { data } = await supabase!.auth.getSession()
   if (data.session) return
   const { error } = await supabase!.auth.signInAnonymously()
   if (error) throw error
-}
-
-let booting: Promise<SavedGame> | null = null
-
-/**
- * Loads the game named in the URL (?game=…), or creates a new one from `fresh()`.
- * Memoised so React's dev double-effects don't create two games.
- */
-export function bootGame(fresh: () => GameState): Promise<SavedGame> {
-  booting ??= (async () => {
-    const id = new URLSearchParams(location.search).get('game')
-    return (id && (await loadGameRow(id))) || (await createGameRow(fresh()))
-  })()
-  return booting
 }
 
 export async function createGameRow(state: GameState): Promise<SavedGame> {
@@ -66,4 +54,16 @@ export async function saveGameRow(id: string, state: GameState, version: number)
 export async function logAction(gameId: string, action: Action) {
   const { error } = await supabase!.from('game_actions').insert({ game_id: gameId, action })
   if (error) throw error
+}
+
+/** This browser's most recent games, newest first, for the "Continue" list. */
+export async function listMyGames(limit = 6): Promise<GameSummary[]> {
+  await ensureSession()
+  const { data, error } = await supabase!
+    .from('games')
+    .select('id, updated_at, state')
+    .order('updated_at', { ascending: false })
+    .limit(limit)
+  if (error) throw error
+  return data.map((row) => ({ id: row.id, updatedAt: row.updated_at, state: upgradeState(row.state as GameState) }))
 }
