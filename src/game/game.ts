@@ -65,7 +65,12 @@ export type GameEvent = {
   text: string
   /** Cash change for this player, if any (shown as a floating +/− on their panel) */
   amount?: number
+  /** Which turn of the game this happened on (1 = the first player's first turn) */
+  turn?: number
 }
+
+/** Generous cap so even very long games keep their whole story without bloating saves */
+const MAX_EVENTS = 2000
 
 export type GameState = {
   settings: GameSettings
@@ -103,6 +108,8 @@ export type GameState = {
   winner: number | null
   /** Count of player decisions applied so far; online clients use it to stay in step */
   seq: number
+  /** Turn number, for grouping the history; goes up each time play passes to the next player */
+  turn: number
   events: GameEvent[]
   nextEventId: number
 }
@@ -169,6 +176,7 @@ export function createGame(seats: Seat[] = DEFAULT_SEATS, settings: GameSettings
     cardRent: null,
     winner: null,
     seq: 0,
+    turn: 1,
     events: [],
     nextEventId: 1,
   }
@@ -211,8 +219,8 @@ export const rollDice = (): [number, number] => [
 // ---------- Small state helpers ----------
 
 function log(state: GameState, playerId: number, text: string, amount?: number): GameState {
-  const event = { id: state.nextEventId, playerId, text, amount }
-  return { ...state, events: [event, ...state.events].slice(0, 30), nextEventId: state.nextEventId + 1 }
+  const event: GameEvent = { id: state.nextEventId, playerId, text, amount, turn: state.turn }
+  return { ...state, events: [event, ...state.events].slice(0, MAX_EVENTS), nextEventId: state.nextEventId + 1 }
 }
 
 function updatePlayer(state: GameState, id: number, patch: Partial<Player>): GameState {
@@ -615,6 +623,7 @@ function declareBankruptcy(state: GameState): GameState {
     doublesStreak: 0,
     moveDir: 1,
     current: nextPlayerId(state),
+    turn: state.turn + 1,
   }
 }
 
@@ -777,6 +786,7 @@ export function reducer(state: GameState, action: Action): GameState {
         doublesStreak: 0,
         moveDir: 1,
         current: nextPlayerId(state),
+        turn: state.turn + 1,
       }
     }
   }
