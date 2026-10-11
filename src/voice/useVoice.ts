@@ -172,7 +172,11 @@ export function useVoice(requestedId: string | null) {
           )
         })
 
-      await r.connect(pass.url, pass.token)
+      await r.connect(pass.url, pass.token).catch((err) => {
+        // LiveKit's own messages are technical; keep them in the console for debugging
+        console.error('Voice connection failed', err)
+        throw new Error('Couldn’t join voice. Tap to try again.')
+      })
       if (cancelled) return r.disconnect()
       setMe(r.localParticipant.identity)
       setBlocked(!r.canPlaybackAudio)
