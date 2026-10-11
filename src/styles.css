@@ -3169,6 +3169,14 @@ body {
   .sidebar {
     max-height: calc(100dvh - 32px);
   }
+  /* The turn card (with its Buy / Pass / Roll buttons) never gets squeezed; the player list gives way */
+  .sidebar > * {
+    flex-shrink: 0;
+  }
+  .sidebar > .players {
+    flex-shrink: 1;
+    min-height: 120px;
+  }
   .players {
     min-height: 0;
     overflow-y: auto;
@@ -3225,6 +3233,17 @@ body {
 
 .players--compact + .feed-wrap .feed__item:nth-child(n + 4) {
   display: none;
+}
+
+/* Phones: compact cards sit two to a row, so the money drops under the name instead of colliding with it */
+@media (max-width: 560px) {
+  .players--compact .player {
+    grid-template-columns: 30px 1fr;
+  }
+  .players--compact .player__name {
+    gap: 6px;
+    line-height: 1.2;
+  }
 }
 
 /* ---------- Sound & help controls ---------- */
@@ -5241,5 +5260,33 @@ body {
 
   .voice__mic span {
     font-size: 13px;
+  }
+}
+
+/* Very short windows (small laptops, zoomed browsers): if it still can't fit, the sidebar scrolls */
+@media (min-width: 981px) and (max-height: 700px) {
+  .sidebar {
+    overflow-y: auto;
+    scrollbar-width: thin;
+  }
+}
+
+/* ---------- Phones: the board stays put while the rest scrolls under it ---------- */
+
+@media (max-width: 700px) and (orientation: portrait) {
+  .board-wrap {
+    position: sticky;
+    top: 10px;
+    /* Above the sidebar's own layered bits (speed / help / sound buttons) as they scroll under */
+    z-index: 45;
+  }
+
+  /* A strip of background behind the board, so cards scrolling up disappear beneath it */
+  .board-wrap::before {
+    content: '';
+    position: absolute;
+    inset: -10px -10px -14px;
+    z-index: -1;
+    background: linear-gradient(var(--indigo-deep) calc(100% - 14px), transparent);
   }
 }
