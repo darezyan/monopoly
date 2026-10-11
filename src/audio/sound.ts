@@ -236,6 +236,11 @@ export const sfx = {
   click() {
     tone({ freq: 1200, dur: 0.03, gain: 0.08, type: 'square' })
   },
+  /** A new chat message: a soft two-note pop */
+  message() {
+    tone({ freq: 880, dur: 0.09, gain: 0.12, type: 'triangle' })
+    tone({ freq: 1320, dur: 0.14, gain: 0.1, type: 'triangle', start: 0.07 })
+  },
 }
 
 // ---------- Background music: a light highlife groove ----------
