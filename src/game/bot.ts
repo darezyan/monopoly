@@ -220,22 +220,53 @@ function bundleValue(state: GameState, b: Bundle, to: number, owners: Record<num
   return b.deeds.reduce((sum, i) => sum + valueTo(state, i, to, owners), 0) + b.cash + b.jailCards * JAIL_CARD_VALUE
 }
 
+/** Who would own what if the deal on the table went through */
+function afterTrade(state: GameState): Record<number, number> {
+  const t = state.trade!
+  const after = { ...state.owners }
+  for (const i of t.give.deeds) after[i] = t.responder
+  for (const i of t.get.deeds) after[i] = t.proposer
+  return after
+}
+
 /** How robot `me` sees the deal on the table: what it gains and what it gives up, by its own lights. */
 function appraise(state: GameState, me: number): { gain: number; loss: number } {
   const t = state.trade!
   const other = t.proposer
   const gets = t.give
   const gives = t.get
-  const after = { ...state.owners }
-  for (const i of gets.deeds) after[i] = me
-  for (const i of gives.deeds) after[i] = other
+  const after = afterTrade(state)
 
   const gain = bundleValue(state, gets, me, after)
   const ownLoss = bundleValue(state, gives, me, state.owners)
   // Handing a rival their set is a cost in itself; greedy robots charge more for it
   const theirGain = gives.deeds.reduce((sum, i) => sum + valueTo(state, i, other, after), 0)
   const empowering = Math.max(0, theirGain - gives.deeds.reduce((sum, i) => sum + valueTo(state, i, me, state.owners), 0))
-  return { gain, loss: ownLoss + empowering * (0.3 + personaOf(state, me).greed * 0.7) }
+  const loss = ownLoss + empowering * (0.3 + personaOf(state, me).greed * 0.7)
+  // Giving up a colour we were winning, so that they complete it, is a far bigger loss than the deeds' value
+  return { gain, loss: surrendersSet(state, me, other, after) ? loss * SURRENDER[state.players[me].robot ?? 'normal'] : loss }
+}
+
+/**
+ * How much more a robot asks before giving up a colour it was ahead in (holding at least as many
+ * as the buyer) to complete the buyer's set: easy robots can still be talked into it, sharp ones hardly ever.
+ */
+const SURRENDER: Record<RobotLevel, number> = { easy: 1.45, normal: 2, sharp: 2.6 }
+
+function surrendersSet(state: GameState, me: number, other: number, after: Record<number, number>): boolean {
+  const groups = new Set(
+    state.trade!.get.deeds.flatMap((i) => {
+      const tile = BOARD[i]
+      return tile.kind === 'property' ? [tile.group] : []
+    }),
+  )
+  return [...groups].some((group) => {
+    const all = groupIndexes(group)
+    if (!all.every((i) => after[i] === other)) return false
+    const mine = all.filter((i) => state.owners[i] === me).length
+    const theirs = all.filter((i) => state.owners[i] === other).length
+    return mine >= theirs
+  })
 }
 
 /** A robot's answer to the deal it's been offered: accept, haggle, or walk away. */
@@ -256,7 +287,9 @@ function respondToDeal(state: GameState, me: number): Action {
   const close = gain >= loss * (0.5 + persona.greed * 0.15)
   if (close && t.counters < MAX_COUNTERS) {
     const shortfall = loss * bar - gain
-    const ask = roundTo10(shortfall * (0.55 + Math.random() * 0.45))
+    // Haggling usually meets them partway, but never when it means handing over a colour we were winning
+    const share = surrendersSet(state, me, t.proposer, afterTrade(state)) ? 1 + Math.random() * 0.15 : 0.55 + Math.random() * 0.45
+    const ask = roundTo10(shortfall * share)
     if (ask > 0) {
       // Pay less first if we were paying; otherwise ask them for more
       const ourCash = Math.max(0, t.get.cash - ask)
@@ -322,7 +355,7 @@ function pickDeal(state: GameState, me: number): Action | null {
     const worthToMe = missing.reduce((sum, i) => sum + valueTo(state, i, me, after), 0)
     const price = missing.reduce((sum, i) => sum + (BOARD[i] as BuyableTile).price, 0)
     // The most this robot would ever pay, by need and keenness
-    const ceiling = Math.min(spare, worthToMe * (0.5 + persona.eagerness * 0.45))
+    const ceiling = Math.min(spare, worthToMe * (0.62 + persona.eagerness * 0.38))
 
     // Open somewhere above face value; come back higher than last time; lowball someone struggling
     let offer = price * (1.05 + persona.eagerness * 0.35) * jitter(noise)
