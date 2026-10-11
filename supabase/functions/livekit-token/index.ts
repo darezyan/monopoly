@@ -20,7 +20,8 @@ const CORS = {
 /** How long a pass lasts. Reconnecting after this needs a new one, which the game fetches itself. */
 const TTL_SECONDS = 6 * 60 * 60
 
-const env = (name: string) => Deno.env.get(name) ?? ''
+// Trimmed: a secret pasted into the dashboard can pick up a trailing line break, which breaks signing
+const env = (name: string) => (Deno.env.get(name) ?? '').trim()
 
 const reply = (status: number, body: Record<string, unknown>) =>
   new Response(JSON.stringify(body), { status, headers: { ...CORS, 'Content-Type': 'application/json' } })
