@@ -242,10 +242,14 @@ function appraise(state: GameState, me: number): { gain: number; loss: number } 
   // Handing a rival their set is a cost in itself; greedy robots charge more for it
   const theirGain = gives.deeds.reduce((sum, i) => sum + valueTo(state, i, other, after), 0)
   const empowering = Math.max(0, theirGain - gives.deeds.reduce((sum, i) => sum + valueTo(state, i, me, state.owners), 0))
-  const loss = ownLoss + empowering * (0.3 + personaOf(state, me).greed * 0.7)
+  const level = state.players[me].robot ?? 'normal'
+  const loss = ownLoss + empowering * (EMPOWER[level] + personaOf(state, me).greed * 0.6)
   // Giving up a colour we were winning, so that they complete it, is a far bigger loss than the deeds' value
   return { gain, loss: surrendersSet(state, me, other, after) ? loss * SURRENDER[state.players[me].robot ?? 'normal'] : loss }
 }
+
+/** How seriously a robot counts the danger of handing someone else a set (greed adds to it) */
+const EMPOWER: Record<RobotLevel, number> = { easy: 0.3, normal: 0.5, sharp: 0.7 }
 
 /**
  * How much more a robot asks before giving up a colour it was ahead in (holding at least as many
@@ -280,9 +284,18 @@ function respondToDeal(state: GameState, me: number): Action {
   if (robot.cash - t.get.cash < 0) return { type: 'declineTrade' }
 
   const { gain, loss } = appraise(state, me)
-  // Short of cash, a robot takes money more readily
+  // They want the piece that completes their set, and hold one we need for ours: that's leverage
+  const swap = leverageSwap(state, me)
+  // Short of cash, a robot takes money more readily; after they've refused us, it digs in
   const desperate = robot.cash < 150 && t.give.cash > 0
-  const bar = (1 + persona.greed * 0.35 - (desperate ? 0.2 : 0)) * jitter(noise)
+  const bar = (1 + persona.greed * 0.35 - (desperate ? 0.2 : 0) + (swap?.grudge ? 0.15 : 0)) * jitter(noise)
+  if (swap && t.counters <= 1 && t.counters < MAX_COUNTERS) {
+    // Ask for their piece instead of (or as well as) cash, unless the money is too good to argue with
+    const tooGood = gain >= loss * bar * 1.35
+    if (!tooGood || swap.grudge || Math.random() < 0.35 + persona.greed * 0.5) {
+      return { type: 'counterTrade', give: swap.give, get: swap.get }
+    }
+  }
   if (gain >= loss * bar) return { type: 'acceptTrade' }
 
   // Close enough to haggle? Ask for the gap to be (mostly) closed with cash.
@@ -404,6 +417,52 @@ function pickDeal(state: GameState, me: number): Action | null {
   // Usually go for the most appealing deal, sometimes another one
   candidates.sort((a, b) => b.appeal - a.appeal)
   return candidates[Math.random() < 0.75 ? 0 : Math.floor(Math.random() * candidates.length)].action
+}
+
+/**
+ * When a deal would complete the other side's set, and they hold the pieces we need to finish one
+ * of ours, the counter-offer we'd make: their pieces for ours, with cash evening out the difference.
+ * `grudge` is set when they've already turned down our request for those pieces.
+ */
+function leverageSwap(state: GameState, me: number): { give: Bundle; get: Bundle; grudge: boolean } | null {
+  const t = state.trade!
+  const other = t.proposer
+  const persona = personaOf(state, me)
+  const noise = NOISE[state.players[me].robot ?? 'normal']
+  const after = afterTrade(state)
+  if (!completesSetFor(state, other, after)) return null
+  const wanted = new Set(t.get.deeds.flatMap((i) => (BOARD[i].kind === 'property' ? [(BOARD[i] as { group: string }).group] : [])))
+
+  let best: { give: Bundle; get: Bundle; grudge: boolean; value: number } | null = null
+  const seen = new Set<string>()
+  for (const tile of BOARD) {
+    if (tile.kind !== 'property' || seen.has(tile.group) || wanted.has(tile.group)) continue
+    seen.add(tile.group)
+    const group = groupIndexes(tile.group)
+    const mine = group.filter((i) => state.owners[i] === me)
+    const missing = group.filter((i) => state.owners[i] !== me)
+    if (mine.length === 0 || missing.length === 0 || !missing.every((i) => state.owners[i] === other)) continue
+    if (missing.some((i) => t.give.deeds.includes(i) || deedTradeBlocker(state, i))) continue
+
+    const swapped = { ...after }
+    for (const i of missing) swapped[i] = me
+    const sum = (deeds: number[], who: number, owners: Record<number, number>) =>
+      deeds.reduce((total, i) => total + valueTo(state, i, who, owners), 0)
+    const myNet = sum(missing, me, swapped) - sum(t.get.deeds, me, state.owners)
+    const theirNet = sum(t.get.deeds, other, swapped) - sum(missing, other, state.owners)
+    const gap = theirNet - myNet
+    const grudge = !!state.dealMemory[dealKey(me, other, missing)]
+    let getCash = gap > 0 ? roundTo10(gap * (0.3 + persona.greed * 0.4) * jitter(noise)) : 0
+    const giveCash = gap < 0 && !grudge ? roundTo10(-gap * (0.5 - persona.greed * 0.25) * jitter(noise)) : 0
+    if (grudge) getCash = roundTo10(getCash * 1.15 + 20)
+    getCash = Math.min(getCash, Math.max(0, state.players[other].cash))
+
+    const give: Bundle = { deeds: t.get.deeds, cash: giveCash, jailCards: t.get.jailCards }
+    const get: Bundle = { deeds: [...t.give.deeds, ...missing], cash: getCash, jailCards: t.give.jailCards }
+    if (giveCash > state.players[me].cash || tradeProblem(state, me, other, give, get)) continue
+    if (!best || myNet > best.value) best = { give, get, grudge, value: myNet }
+  }
+  return best && { give: best.give, get: best.get, grudge: best.grudge }
 }
 
 /** Whether `who` ends up with a full colour they didn't have before */
