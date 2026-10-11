@@ -184,7 +184,8 @@ export type Trade = {
   get: Bundle
   counters: number
   /** Who started this negotiation and which properties they were after (survives counter-offers) */
-  opener?: { proposer: number; responder: number; wanted: number[] }
+  /** Who started the negotiation, what they wanted and the cash they first put up (kept through counters) */
+  opener?: { proposer: number; responder: number; wanted: number[]; cash?: number }
 }
 
 const TRADE_ACTIONS = new Set<Action['type']>(['counterTrade', 'acceptTrade', 'declineTrade', 'cancelTrade'])
@@ -957,7 +958,7 @@ function tradeReducer(state: GameState, action: Action): GameState {
         give: action.give,
         get: action.get,
         counters: 0,
-        opener: { proposer: state.current, responder: action.to, wanted: action.get.deeds },
+        opener: { proposer: state.current, responder: action.to, wanted: action.get.deeds, cash: action.give.cash },
       }
       const proposedOnTurn = { ...state.proposedOnTurn, [state.current]: state.turn }
       return log({ ...state, trade, proposedOnTurn }, state.current, `offered ${state.players[action.to].name} a deal`, undefined, {
@@ -1003,7 +1004,8 @@ function tradeReducer(state: GameState, action: Action): GameState {
         ...state.dealMemory,
         [key]: {
           refusals: (before?.refusals ?? 0) + 1,
-          lastCash: Math.max(openerCash, before?.lastCash ?? 0),
+          // The most the opener put up at any point, so a fresh offer has to beat their first one too
+          lastCash: Math.max(openerCash, opener.cash ?? 0, before?.lastCash ?? 0),
           turn: state.turn,
         },
       }
