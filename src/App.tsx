@@ -8,7 +8,7 @@ import { JoinRoom } from './components/JoinRoom'
 import { Portfolio } from './components/Portfolio'
 import { Room } from './components/Room'
 import { Setup } from './components/Setup'
-import { Sidebar, canTrade } from './components/Sidebar'
+import { Sidebar, canTrade, type FeedTab } from './components/Sidebar'
 import { TopControls } from './components/TopControls'
 import { LoanPanel } from './components/LoanPanel'
 import { TradeBuilder } from './components/TradeBuilder'
@@ -16,6 +16,8 @@ import { DEFAULT_SETTINGS } from './game/game'
 import { createRoom, loadGameRow } from './game/persistence'
 import { useGame } from './game/useGame'
 import { useVoice, type Voice } from './voice/useVoice'
+import { useChat } from './chat/useChat'
+import { ChatDock, ChatThread, useChatAlerts, useIsPhone } from './components/Chat'
 
 type Screen =
   | { name: 'home' }
@@ -212,13 +214,22 @@ function GameScreen({ game, voice, onExit }: { game: ReturnType<typeof useGame>;
   const [loanOpen, setLoanOpen] = useState(false)
   useGameSounds(state)
 
+  // Chat (online games): a sheet on phones, a sidebar tab on bigger screens
+  const me = game.online?.me ?? null
+  const chat = useChat(game.online?.gameId ?? null, me)
+  const phone = useIsPhone()
+  const [chatOpen, setChatOpen] = useState(false)
+  const [feedTab, setFeedTab] = useState<FeedTab>('activity')
+  const alerts = useChatAlerts(chat, me, phone ? chatOpen : feedTab === 'chat')
+  const chatOn = chat.status !== 'off' && chat.status !== 'unavailable'
+
   // A deed left open by the previous player shouldn't carry into the next turn
   useEffect(() => setPinned(null), [state.current])
 
   // Space rolls or ends the turn; B / P buy or pass when a purchase is on the table
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.repeat || e.metaKey || e.ctrlKey || portfolio !== null || history || deal || loanOpen) return
+      if (e.repeat || e.metaKey || e.ctrlKey || portfolio !== null || history || deal || loanOpen || chatOpen) return
       if (e.key === 'Escape') return setPinned(null)
       if (waiting) return
       if (e.target instanceof HTMLElement && e.target.closest('button, input, textarea')) return
@@ -235,7 +246,7 @@ function GameScreen({ game, voice, onExit }: { game: ReturnType<typeof useGame>;
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [state.phase, state.pendingPurchase, portfolio, history, deal, loanOpen, waiting, roll, endTurn, buy, pass, applyCard])
+  }, [state.phase, state.pendingPurchase, portfolio, history, deal, loanOpen, chatOpen, waiting, roll, endTurn, buy, pass, applyCard])
 
   return (
     <main className="app">
@@ -249,12 +260,39 @@ function GameScreen({ game, voice, onExit }: { game: ReturnType<typeof useGame>;
       <Sidebar
         game={game}
         voice={voice}
+        chat={
+          chatOn && !phone
+            ? {
+                tab: feedTab,
+                onTab: setFeedTab,
+                unread: alerts.unread,
+                thread: <ChatThread chat={chat} players={state.players} me={me} />,
+              }
+            : undefined
+        }
         onOpenPortfolio={setPortfolio}
         onOpenHistory={() => setHistory(true)}
         onOpenTrade={(partner) => setDeal({ partner })}
         onOpenLoan={() => setLoanOpen(true)}
         onExit={onExit}
       />
+      {chatOn && phone && (
+        <ChatDock
+          chat={chat}
+          players={state.players}
+          me={me}
+          open={chatOpen}
+          onOpen={() => setChatOpen(true)}
+          onClose={() => setChatOpen(false)}
+          unread={alerts.unread}
+          preview={
+            alerts.preview && {
+              message: alerts.preview,
+              player: state.players.find((p) => p.userId === alerts.preview!.userId),
+            }
+          }
+        />
+      )}
       {history && <History state={state} onClose={() => setHistory(false)} />}
       {loanOpen && game.myTurn && <LoanPanel game={game} onClose={() => setLoanOpen(false)} />}
       {deal && (deal.counter ? state.trade : canTrade(game)) && (

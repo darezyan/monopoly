@@ -29,9 +29,15 @@ import {
 } from '../game/game'
 import { TOKEN_LABELS, TokenDisc, inkFor } from './Token'
 
+export type FeedTab = 'activity' | 'chat'
+
+/** Online games on bigger screens: the feed gets a Chat tab next to the activity */
+export type ChatTab = { tab: FeedTab; onTab: (tab: FeedTab) => void; unread: number; thread: React.ReactNode }
+
 type Props = {
   game: Game
   voice: Voice
+  chat?: ChatTab
   onOpenPortfolio: (playerId: number) => void
   onOpenHistory: () => void
   /** Open the deal builder, optionally with a partner picked */
@@ -41,7 +47,7 @@ type Props = {
   onExit: () => void
 }
 
-export function Sidebar({ game, voice, onOpenPortfolio, onOpenHistory, onOpenTrade, onOpenLoan, onExit }: Props) {
+export function Sidebar({ game, voice, chat, onOpenPortfolio, onOpenHistory, onOpenTrade, onOpenLoan, onExit }: Props) {
   const { state } = game
   return (
     <aside className="sidebar">
@@ -81,7 +87,7 @@ export function Sidebar({ game, voice, onOpenPortfolio, onOpenHistory, onOpenTra
           />
         ))}
       </div>
-      <Feed state={state} onOpenHistory={onOpenHistory} />
+      <Feed state={state} onOpenHistory={onOpenHistory} chat={chat} />
     </aside>
   )
 }
@@ -133,7 +139,13 @@ function statusText(state: GameState): string {
   }
 }
 
-function TurnCard({ game, onOpenPortfolio, onOpenTrade, onOpenLoan, onExit }: Omit<Props, 'onOpenHistory' | 'voice'>) {
+function TurnCard({
+  game,
+  onOpenPortfolio,
+  onOpenTrade,
+  onOpenLoan,
+  onExit,
+}: Omit<Props, 'onOpenHistory' | 'voice' | 'chat'>) {
   const { state, sync } = game
   const player = state.players[state.current]
   const busy = state.phase === 'rolling' || state.phase === 'moving' || sync === 'loading'
@@ -498,18 +510,12 @@ function PlayerCard({ player, active, state, presence, isMe, talking, onOpen }: 
   )
 }
 
-function Feed({ state, onOpenHistory }: { state: GameState; onOpenHistory: () => void }) {
-  if (state.events.length === 0) {
-    return <p className="feed feed--empty">Nothing don happen yet. First roll is yours.</p>
-  }
-  return (
-    <div className="feed-wrap">
-      <div className="feed__head">
-        <span>What’s happening</span>
-        <button className="feed__all" onClick={onOpenHistory}>
-          See all <ChevronRight size={14} />
-        </button>
-      </div>
+function Feed({ state, onOpenHistory, chat }: { state: GameState; onOpenHistory: () => void; chat?: ChatTab }) {
+  const showChat = chat?.tab === 'chat'
+  const activity =
+    state.events.length === 0 ? (
+      <p className="feed feed--empty">Nothing don happen yet. First roll is yours.</p>
+    ) : (
       <ol className="feed">
         {state.events.slice(0, 6).map((e) => {
           const p = state.players[e.playerId]
@@ -529,6 +535,31 @@ function Feed({ state, onOpenHistory }: { state: GameState; onOpenHistory: () =>
           )
         })}
       </ol>
+    )
+
+  return (
+    <div className={`feed-wrap${showChat ? ' is-chat' : ''}`}>
+      <div className="feed__head">
+        {chat ? (
+          <div className="feed__tabs" role="tablist">
+            <button role="tab" aria-selected={!showChat} onClick={() => chat.onTab('activity')}>
+              What’s happening
+            </button>
+            <button role="tab" aria-selected={showChat} onClick={() => chat.onTab('chat')}>
+              Chat
+              {chat.unread > 0 && <span className="feed__unread">{chat.unread > 9 ? '9+' : chat.unread}</span>}
+            </button>
+          </div>
+        ) : (
+          <span>What’s happening</span>
+        )}
+        {!showChat && state.events.length > 0 && (
+          <button className="feed__all" onClick={onOpenHistory}>
+            See all <ChevronRight size={14} />
+          </button>
+        )}
+      </div>
+      {showChat ? chat.thread : activity}
     </div>
   )
 }
