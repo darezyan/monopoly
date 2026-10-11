@@ -254,6 +254,8 @@ function appraise(state: GameState, me: number): { gain: number; loss: number } 
 const SURRENDER: Record<RobotLevel, number> = { easy: 1.45, normal: 2, sharp: 2.6 }
 
 function surrendersSet(state: GameState, me: number, other: number, after: Record<number, number>): boolean {
+  // A fair swap, where we complete a set of our own too, isn't giving anything away
+  if (completesSetFor(state, me, after)) return false
   const groups = new Set(
     state.trade!.get.deeds.flatMap((i) => {
       const tile = BOARD[i]
@@ -350,6 +352,10 @@ function pickDeal(state: GameState, me: number): Action | null {
       if (fedUp && !struggling && !longAgo && !richer) continue
     }
 
+    // Best of all: a swap where each side completes a set
+    const swap = swapDeal(state, me, holder, missing, memory?.lastCash)
+    if (swap) candidates.push(swap)
+
     const after = { ...state.owners }
     for (const i of missing) after[i] = me
     const worthToMe = missing.reduce((sum, i) => sum + valueTo(state, i, me, after), 0)
@@ -398,6 +404,82 @@ function pickDeal(state: GameState, me: number): Action | null {
   // Usually go for the most appealing deal, sometimes another one
   candidates.sort((a, b) => b.appeal - a.appeal)
   return candidates[Math.random() < 0.75 ? 0 : Math.floor(Math.random() * candidates.length)].action
+}
+
+/** Whether `who` ends up with a full colour they didn't have before */
+function completesSetFor(state: GameState, who: number, after: Record<number, number>): boolean {
+  const groups = new Set(BOARD.flatMap((t) => (t.kind === 'property' ? [t.group] : [])))
+  return [...groups].some((g) => {
+    const all = groupIndexes(g)
+    return all.every((i) => after[i] === who) && !all.every((i) => state.owners[i] === who)
+  })
+}
+
+/**
+ * A property-for-property trade: we want `missing` from `holder`, and they need pieces we hold to
+ * finish one of their own colours. We only give from a colour we're not ahead in (never surrender
+ * one we're winning), and even out the difference in cash: whoever gets the better set pays.
+ */
+function swapDeal(
+  state: GameState,
+  me: number,
+  holder: number,
+  missing: number[],
+  lastCash: number | undefined,
+): { action: Action; appeal: number } | null {
+  const robot = state.players[me]
+  const persona = personaOf(state, me)
+  const noise = NOISE[robot.robot ?? 'normal']
+  const ours = (BOARD[missing[0]] as { group: string }).group
+
+  let best: { action: Action; appeal: number } | null = null
+  const seen = new Set<string>([ours])
+  for (const tile of BOARD) {
+    if (tile.kind !== 'property' || seen.has(tile.group)) continue
+    seen.add(tile.group)
+    const group = groupIndexes(tile.group)
+    const theirs = group.filter((i) => state.owners[i] === holder)
+    const pieces = group.filter((i) => state.owners[i] !== holder)
+    // They hold some of this colour and we hold all the rest
+    if (theirs.length === 0 || pieces.length === 0 || !pieces.every((i) => state.owners[i] === me)) continue
+    if (pieces.length > theirs.length) continue
+    if (pieces.some((i) => deedTradeBlocker(state, i))) continue
+
+    const after = { ...state.owners }
+    for (const i of missing) after[i] = me
+    for (const i of pieces) after[i] = holder
+    const sum = (deeds: number[], who: number, owners: Record<number, number>) =>
+      deeds.reduce((total, i) => total + valueTo(state, i, who, owners), 0)
+    const myNet = sum(missing, me, after) - sum(pieces, me, state.owners)
+    const theirNet = sum(pieces, holder, after) - sum(missing, holder, state.owners)
+
+    // Even it out: greedy robots ask more when they come off worse and pay less when they come off better
+    const gap = theirNet - myNet
+    let give = 0
+    let get = 0
+    if (gap > 0) get = roundTo10(gap * (0.3 + persona.greed * 0.4) * jitter(noise))
+    else give = roundTo10(-gap * (0.5 - persona.greed * 0.25) * jitter(noise))
+    // After a refusal, come back with more cash on our side
+    if (lastCash !== undefined) {
+      get = 0
+      give = Math.max(give, roundTo10(lastCash * 1.15 + 20))
+    }
+    const reserve = 40 + persona.caution * 260
+    if (give > robot.cash - reserve) continue
+    get = Math.min(get, Math.max(0, state.players[holder].cash - 50))
+
+    const action: Action = {
+      type: 'proposeTrade',
+      to: holder,
+      give: { deeds: pieces, cash: give, jailCards: 0 },
+      get: { deeds: missing, cash: get, jailCards: 0 },
+    }
+    if (tradeProblem(state, me, holder, action.give, action.get)) continue
+    // Swaps are preferred over buying outright when both are on offer
+    const appeal = (myNet - give + get) * 1.25
+    if (!best || appeal > best.appeal) best = { action, appeal }
+  }
+  return best
 }
 
 /**
