@@ -67,6 +67,52 @@ export function useChatAlerts(chat: Chat, me: string | null, visible: boolean) {
   return { unread, preview }
 }
 
+/** How long a message stays up as a bubble on the sender's player card */
+const BUBBLE_MS = 5000
+
+/**
+ * Each player's newest message, for a few seconds after they send it, so everyone sees it
+ * on the player cards without opening the chat. History loaded on opening the game isn't shown.
+ */
+export function useChatBubbles(chat: Chat): Record<string, ChatMessage> {
+  const [bubbles, setBubbles] = useState<Record<string, ChatMessage>>({})
+  const ready = useRef(false)
+  const shown = useRef(new Set<number>())
+  const latest = chat.messages[chat.messages.length - 1]
+
+  useEffect(() => {
+    if (chat.status === 'ready' && !ready.current) {
+      ready.current = true
+      chat.messages.forEach((m) => shown.current.add(m.id))
+    }
+  }, [chat.status])
+
+  // One hide timer per player, so a newer message restarts it and confirming a sent one doesn't
+  const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>())
+  useEffect(() => () => timers.current.forEach(clearTimeout), [])
+
+  useEffect(() => {
+    if (!latest || !ready.current || shown.current.has(latest.id)) return
+    shown.current.add(latest.id)
+    // A sent message shows straight away; when the server confirms it, the same bubble carries on
+    const current = bubbles[latest.userId]
+    if (!latest.pending && current?.pending && current.body === latest.body) return
+    setBubbles((b) => ({ ...b, [latest.userId]: latest }))
+    clearTimeout(timers.current.get(latest.userId))
+    timers.current.set(
+      latest.userId,
+      setTimeout(() => setBubbles((b) => omit(b, latest.userId)), BUBBLE_MS),
+    )
+  }, [latest?.id])
+
+  return bubbles
+}
+
+const omit = <T,>(record: Record<string, T>, key: string) => {
+  const { [key]: _, ...rest } = record
+  return rest
+}
+
 const clock = (at: number) => new Date(at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
 
 type ThreadProps = { chat: Chat; players: Player[]; me: string | null; autoFocus?: boolean }

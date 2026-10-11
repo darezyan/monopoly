@@ -38,6 +38,8 @@ type Props = {
   game: Game
   voice: Voice
   chat?: ChatTab
+  /** Messages just sent, by user id, shown as a bubble on the sender's card */
+  bubbles?: Record<string, { id: number; body: string }>
   onOpenPortfolio: (playerId: number) => void
   onOpenHistory: () => void
   /** Open the deal builder, optionally with a partner picked */
@@ -47,7 +49,17 @@ type Props = {
   onExit: () => void
 }
 
-export function Sidebar({ game, voice, chat, onOpenPortfolio, onOpenHistory, onOpenTrade, onOpenLoan, onExit }: Props) {
+export function Sidebar({
+  game,
+  voice,
+  chat,
+  bubbles,
+  onOpenPortfolio,
+  onOpenHistory,
+  onOpenTrade,
+  onOpenLoan,
+  onExit,
+}: Props) {
   const { state } = game
   return (
     <aside className="sidebar">
@@ -83,6 +95,7 @@ export function Sidebar({ game, voice, chat, onOpenPortfolio, onOpenHistory, onO
             presence={!game.online || !p.userId ? null : game.online.peers.has(p.userId)}
             isMe={!!game.online && p.userId === game.online.me}
             talking={!!p.userId && voice.speaking.has(p.userId)}
+            bubble={p.userId ? bubbles?.[p.userId] : undefined}
             onOpen={() => onOpenPortfolio(p.id)}
           />
         ))}
@@ -145,7 +158,7 @@ function TurnCard({
   onOpenTrade,
   onOpenLoan,
   onExit,
-}: Omit<Props, 'onOpenHistory' | 'voice' | 'chat'>) {
+}: Omit<Props, 'onOpenHistory' | 'voice' | 'chat' | 'bubbles'>) {
   const { state, sync } = game
   const player = state.players[state.current]
   const busy = state.phase === 'rolling' || state.phase === 'moving' || sync === 'loading'
@@ -430,10 +443,12 @@ type PlayerCardProps = {
   isMe: boolean
   /** Speaking in voice chat right now */
   talking: boolean
+  /** A chat message they just sent */
+  bubble?: { id: number; body: string }
   onOpen: () => void
 }
 
-function PlayerCard({ player, active, state, presence, isMe, talking, onOpen }: PlayerCardProps) {
+function PlayerCard({ player, active, state, presence, isMe, talking, bubble, onOpen }: PlayerCardProps) {
   const shown = useAnimatedNumber(player.cash)
   // Latest money event for this player drives the floating +/− badge
   const lastMoney = state.events.find((e) => e.playerId === player.id && e.amount !== undefined)
@@ -494,6 +509,11 @@ function PlayerCard({ player, active, state, presence, isMe, talking, onOpen }: 
           </span>
         )}
       </span>
+      {bubble && (
+        <span key={bubble.id} className="player__bubble" role="status">
+          <span>{bubble.body}</span>
+        </span>
+      )}
       {deeds.length > 0 && (
         <span className="player__deeds">
           {deeds.map(({ tile, i }) => (

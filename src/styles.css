@@ -5656,3 +5656,84 @@ body {
     animation: none;
   }
 }
+
+/* ---------- Chat bubbles on player cards ---------- */
+
+.player {
+  position: relative;
+}
+
+/* A message just sent pops up over the sender's card, then fades away */
+.player__bubble {
+  position: absolute;
+  top: 50%;
+  left: 62px;
+  right: 10px;
+  z-index: 2;
+  padding: 8px 12px;
+  border-radius: 14px;
+  background: var(--paper);
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.3;
+  box-shadow: 0 8px 22px rgb(0 0 0 / 0.4), 0 0 0 2px var(--token);
+  pointer-events: none;
+  animation: bubble 5s ease forwards;
+}
+
+/* Long messages stop at two lines */
+.player__bubble > span {
+  position: relative;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow-wrap: anywhere;
+}
+
+/* Tail pointing at the player's token */
+.player__bubble::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: -6px;
+  width: 12px;
+  height: 12px;
+  background: var(--paper);
+  transform: translateY(-50%) rotate(45deg);
+}
+
+@keyframes bubble {
+  0% {
+    opacity: 0;
+    transform: translateY(-50%) scale(0.85);
+  }
+  6%,
+  88% {
+    opacity: 1;
+    transform: translateY(-50%) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-50%) scale(0.96);
+  }
+}
+
+.players--compact .player__bubble {
+  left: 50px;
+  font-size: 13px;
+}
+
+
+/* Half-width cards on phones: let a message run to three lines */
+@media (max-width: 560px) {
+  .player__bubble {
+    left: 44px;
+    right: 6px;
+    padding: 7px 10px;
+  }
+  .player__bubble > span {
+    -webkit-line-clamp: 3;
+  }
+}

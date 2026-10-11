@@ -17,7 +17,7 @@ import { createRoom, loadGameRow } from './game/persistence'
 import { useGame } from './game/useGame'
 import { useVoice, type Voice } from './voice/useVoice'
 import { useChat } from './chat/useChat'
-import { ChatDock, ChatThread, useChatAlerts, useIsPhone } from './components/Chat'
+import { ChatDock, ChatThread, useChatAlerts, useChatBubbles, useIsPhone } from './components/Chat'
 
 type Screen =
   | { name: 'home' }
@@ -222,6 +222,7 @@ function GameScreen({ game, voice, onExit }: { game: ReturnType<typeof useGame>;
   const [feedTab, setFeedTab] = useState<FeedTab>('activity')
   const alerts = useChatAlerts(chat, me, phone ? chatOpen : feedTab === 'chat')
   const chatOn = chat.status !== 'off' && chat.status !== 'unavailable'
+  const bubbles = useChatBubbles(chat)
 
   // A deed left open by the previous player shouldn't carry into the next turn
   useEffect(() => setPinned(null), [state.current])
@@ -260,6 +261,7 @@ function GameScreen({ game, voice, onExit }: { game: ReturnType<typeof useGame>;
       <Sidebar
         game={game}
         voice={voice}
+        bubbles={bubbles}
         chat={
           chatOn && !phone
             ? {
