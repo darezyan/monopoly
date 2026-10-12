@@ -186,6 +186,8 @@ export type Trade = {
   /** Who started this negotiation and which properties they were after (survives counter-offers) */
   /** Who started the negotiation, what they wanted and the cash they first put up (kept through counters) */
   opener?: { proposer: number; responder: number; wanted: number[]; cash?: number }
+  /** For a counter-offer: the terms it replaced, seen from this deal's sides, so the card can show what changed */
+  previous?: { give: Bundle; get: Bundle }
 }
 
 const TRADE_ACTIONS = new Set<Action['type']>(['counterTrade', 'acceptTrade', 'declineTrade', 'cancelTrade'])
@@ -977,6 +979,7 @@ function tradeReducer(state: GameState, action: Action): GameState {
         get: action.get,
         counters: t.counters + 1,
         opener: t.opener,
+        previous: { give: t.get, get: t.give },
       }
       return log({ ...state, trade }, t.responder, `came back with a counter-offer`, undefined, {
         ...dealTerms(trade),
