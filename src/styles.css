@@ -2134,6 +2134,11 @@ body {
   gap: 6px;
 }
 
+.sheet__leave button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .sheet__leave p {
   margin: 0;
   font-size: 12.5px;

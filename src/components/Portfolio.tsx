@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { ArrowLeftRight, Building2, DoorOpen, KeyRound, Lock, X } from 'lucide-react'
 import { BOARD, GROUP_COLORS, naira, type ColorGroup } from '../data/board'
-import { HOTEL, buildingsOf, isBuyable, level, netWorth, ownsGroup, type GameState } from '../game/game'
+import { HOTEL, buildingsOf, leaveBlocker, isBuyable, level, netWorth, ownsGroup, type GameState } from '../game/game'
 import { TOKEN_LABELS, TokenDisc } from './Token'
 import { iconFor } from './TileIcon'
 
@@ -185,13 +185,17 @@ export function Portfolio({ state, playerId, onClose, onOpenDeed, canManage, onT
         {onLeave && !player.bankrupt && (
           <div className="sheet__leave">
             <button
+              disabled={!!leaveBlocker(state, playerId)}
               className={`offer__pass debt__bust${confirmingLeave ? ' is-confirming' : ''}`}
               onClick={() => (confirmingLeave ? onLeave() : setConfirmingLeave(true))}
               onBlur={() => setConfirmingLeave(false)}
             >
               <DoorOpen size={16} /> {confirmingLeave ? 'Sure? Tap again' : 'Leave game'}
             </button>
-            <p>All your property goes back to the bank and your cash is gone. You can’t come back in.</p>
+            <p>
+              {leaveBlocker(state, playerId) ??
+                'All your property goes back to the bank and your cash is gone. You can’t come back in.'}
+            </p>
           </div>
         )}
       </aside>

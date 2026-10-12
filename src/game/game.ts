@@ -782,8 +782,17 @@ function declareBankruptcy(state: GameState): GameState {
   }
 }
 
+/** Why `id` can't leave right now, or null if they can: only on your own turn, between moves. */
+export function leaveBlocker(state: GameState, id: number): string | null {
+  const p = state.players[id]
+  if (!p || p.bankrupt) return 'Already out of the game'
+  if (id !== state.current) return 'You can leave when it’s your turn'
+  if ((state.phase !== 'idle' && state.phase !== 'landed') || state.drawn) return 'Wait for your move to finish'
+  return null
+}
+
 /**
- * A player walks out, whenever it is: everything they own goes back to the bank (unbuilt,
+ * A player walks out on their turn: everything they own goes back to the bank (unbuilt,
  * unmortgaged), their cash and debts vanish, and play carries on without them.
  */
 function leaveGame(state: GameState, id: number): GameState {
@@ -1106,11 +1115,7 @@ function tradeReducer(state: GameState, action: Action): GameState {
 
 export function reducer(state: GameState, action: Action): GameState {
   if (state.phase === 'over') return state
-  // Leaving is allowed at any moment, even mid-auction or mid-deal
-  if (action.type === 'leaveGame') {
-    const p = state.players[action.player]
-    return p && !p.bankrupt ? leaveGame(state, p.id) : state
-  }
+  if (action.type === 'leaveGame') return leaveBlocker(state, action.player) ? state : leaveGame(state, action.player)
   // An auction in progress takes priority over everything
   if (state.auction) return AUCTION_ACTIONS.has(action.type) ? auctionReducer(state, action) : state
   if (action.type === 'proposeTrade' || TRADE_ACTIONS.has(action.type)) return tradeReducer(state, action)
