@@ -68,6 +68,8 @@ export type Player = {
   /** An outstanding bank loan (house rule): what's owed, and how many times GO has been passed since */
   loan?: { balance: number; laps: number } | null
   bankrupt: boolean
+  /** Walked out of the game (also marked bankrupt, so they're out of play) */
+  left?: boolean
 }
 
 export type Phase = 'idle' | 'rolling' | 'moving' | 'card' | 'landed' | 'over'
@@ -157,6 +159,7 @@ export type Action =
   | { type: 'mortgage'; index: number }
   | { type: 'unmortgage'; index: number }
   | { type: 'declareBankruptcy' }
+  | { type: 'leaveGame'; player: number }
   | { type: 'endTurn' }
   | { type: 'proposeTrade'; to: number; give: Bundle; get: Bundle }
   | { type: 'counterTrade'; give: Bundle; get: Bundle }
@@ -779,6 +782,82 @@ function declareBankruptcy(state: GameState): GameState {
   }
 }
 
+/**
+ * A player walks out, whenever it is: everything they own goes back to the bank (unbuilt,
+ * unmortgaged), their cash and debts vanish, and play carries on without them.
+ */
+function leaveGame(state: GameState, id: number): GameState {
+  const player = state.players[id]
+  const owned = BOARD.flatMap((_, i) => (state.owners[i] === id ? [i] : []))
+
+  const bank = { ...state.bank }
+  const buildings = { ...state.buildings }
+  const owners = { ...state.owners }
+  const mortgaged = { ...state.mortgaged }
+  for (const i of owned) {
+    const built = buildings[i] ?? 0
+    if (built > 0 && state.settings.limitedBuildings) {
+      if (built === HOTEL) bank.hotels++
+      else bank.houses += built
+    }
+    delete buildings[i]
+    delete owners[i]
+    delete mortgaged[i]
+  }
+  state = { ...state, bank, buildings, owners, mortgaged }
+  for (const deck of player.jailFree) state = returnJailCard(state, deck)
+
+  // Any deal they're part of is off
+  const t = state.trade
+  if (t && (t.proposer === id || t.responder === id)) {
+    state = log({ ...state, trade: null }, t.proposer, 'deal called off', undefined, { ...dealTerms(t), outcome: 'withdrawn' })
+  }
+  // They drop out of an auction; a high bid of theirs goes with them
+  const a = state.auction
+  if (a && a.bidders.includes(id)) {
+    const k = a.bidders.indexOf(id)
+    const bidders = a.bidders.filter((b) => b !== id)
+    const turn = bidders.length === 0 ? 0 : (k < a.turn ? a.turn - 1 : a.turn) % bidders.length
+    const auction = a.leader === id ? { ...a, bidders, turn, leader: null, bid: 0 } : { ...a, bidders, turn }
+    state = settleAuction({ ...state, auction })
+  }
+
+  state = updatePlayer(state, id, {
+    bankrupt: true,
+    left: true,
+    cash: 0,
+    creditor: null,
+    loan: null,
+    inJail: false,
+    jailFree: [],
+  })
+  // Anyone they owed just loses the debt; nobody owes a player who's gone
+  for (const p of state.players) if (p.creditor === id) state = updatePlayer(state, p.id, { creditor: 'bank' })
+  state = log(state, id, 'left the game. Their property goes back to the bank')
+
+  const left = activePlayers(state)
+  if (left.length === 1) {
+    state = log(state, left[0].id, 'don own Lagos! 🏆')
+    return { ...state, phase: 'over', winner: left[0].id, pendingPurchase: null, drawn: null, trade: null, auction: null }
+  }
+  if (id !== state.current) return state
+  return {
+    ...state,
+    phase: 'idle',
+    pendingPurchase: null,
+    drawn: null,
+    cardRent: null,
+    stepsLeft: 0,
+    jailPending: false,
+    rollAgain: false,
+    doublesStreak: 0,
+    moveDir: 1,
+    current: nextPlayerId(state),
+    turn: state.turn + 1,
+    rolledThisTurn: false,
+  }
+}
+
 // ---------- Trading ----------
 
 /** The player whose decision the game is waiting on: the bidder up in an auction, a deal's responder, or whoever's turn it is */
@@ -1027,6 +1106,11 @@ function tradeReducer(state: GameState, action: Action): GameState {
 
 export function reducer(state: GameState, action: Action): GameState {
   if (state.phase === 'over') return state
+  // Leaving is allowed at any moment, even mid-auction or mid-deal
+  if (action.type === 'leaveGame') {
+    const p = state.players[action.player]
+    return p && !p.bankrupt ? leaveGame(state, p.id) : state
+  }
   // An auction in progress takes priority over everything
   if (state.auction) return AUCTION_ACTIONS.has(action.type) ? auctionReducer(state, action) : state
   if (action.type === 'proposeTrade' || TRADE_ACTIONS.has(action.type)) return tradeReducer(state, action)

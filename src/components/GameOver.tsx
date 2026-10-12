@@ -24,7 +24,7 @@ export function GameOver({ game, onExit }: { game: Game; onExit: () => void }) {
             <span className="gameover__rank">{i + 1}</span>
             <TokenDisc player={p} className="gameover__token" />
             <span className="gameover__name">{p.name}</span>
-            <span className="gameover__worth">{p.bankrupt ? 'Bankrupt' : naira(netWorth(state, p.id))}</span>
+            <span className="gameover__worth">{p.bankrupt ? (p.left ? 'Left' : 'Bankrupt') : naira(netWorth(state, p.id))}</span>
           </li>
         ))}
       </ol>

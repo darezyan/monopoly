@@ -325,6 +325,14 @@ function GameScreen({ game, voice, onExit }: { game: ReturnType<typeof useGame>;
                 }
               : undefined
           }
+          onLeave={
+            game.controls(portfolio)
+              ? () => {
+                  game.leaveGame(portfolio)
+                  setPortfolio(null)
+                }
+              : undefined
+          }
           onClose={() => setPortfolio(null)}
           onOpenDeed={(index) => {
             setPortfolio(null)

@@ -476,7 +476,7 @@ function PlayerCard({ player, active, state, presence, isMe, talking, bubble, on
               <Bot size={11} strokeWidth={2.5} /> <span className="player__badge-text">{player.robot}</span>
             </span>
           )}
-          {player.bankrupt && <span className="player__badge player__badge--out">Bankrupt</span>}
+          {player.bankrupt && <span className="player__badge player__badge--out">{player.left ? 'Left' : 'Bankrupt'}</span>}
           {player.inJail && (
             <span className="player__badge">
               <Lock size={11} strokeWidth={2.5} /> Kirikiri

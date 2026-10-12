@@ -1,5 +1,5 @@
-import { useEffect } from 'react'
-import { ArrowLeftRight, Building2, KeyRound, Lock, X } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { ArrowLeftRight, Building2, DoorOpen, KeyRound, Lock, X } from 'lucide-react'
 import { BOARD, GROUP_COLORS, naira, type ColorGroup } from '../data/board'
 import { HOTEL, buildingsOf, isBuyable, level, netWorth, ownsGroup, type GameState } from '../game/game'
 import { TOKEN_LABELS, TokenDisc } from './Token'
@@ -39,9 +39,12 @@ type Props = {
   canManage: boolean
   /** Offer this player a deal (only when the current player can trade) */
   onTrade?: () => void
+  /** Walk out of the game for good (only on your own seat) */
+  onLeave?: () => void
 }
 
-export function Portfolio({ state, playerId, onClose, onOpenDeed, canManage, onTrade }: Props) {
+export function Portfolio({ state, playerId, onClose, onOpenDeed, canManage, onTrade, onLeave }: Props) {
+  const [confirmingLeave, setConfirmingLeave] = useState(false)
   const player = state.players[playerId]
   const mine = playerId === state.current && canManage
   const owned = BOARD.filter((_, i) => state.owners[i] === playerId).length
@@ -68,7 +71,7 @@ export function Portfolio({ state, playerId, onClose, onOpenDeed, canManage, onT
             <h2>{player.name}</h2>
             <span>
               {TOKEN_LABELS[player.token]}
-              {player.bankrupt && ' · Bankrupt'}
+              {player.bankrupt && (player.left ? ' · Left the game' : ' · Bankrupt')}
               {player.inJail && (
                 <>
                   {' · '}
@@ -179,6 +182,18 @@ export function Portfolio({ state, playerId, onClose, onOpenDeed, canManage, onT
             )
           })}
         </div>
+        {onLeave && !player.bankrupt && (
+          <div className="sheet__leave">
+            <button
+              className={`offer__pass debt__bust${confirmingLeave ? ' is-confirming' : ''}`}
+              onClick={() => (confirmingLeave ? onLeave() : setConfirmingLeave(true))}
+              onBlur={() => setConfirmingLeave(false)}
+            >
+              <DoorOpen size={16} /> {confirmingLeave ? 'Sure? Tap again' : 'Leave game'}
+            </button>
+            <p>All your property goes back to the bank and your cash is gone. You can’t come back in.</p>
+          </div>
+        )}
       </aside>
     </div>
   )
