@@ -80,6 +80,8 @@ export function useGame() {
   const [peers, setPeers] = useState<Set<string>>(new Set())
   const game = useRef<{ id: string; version: number } | null>(null)
   const lastSaved = useRef<GameState | null>(null)
+  /** We just made a move here: save its result ourselves even if the turn has passed on (e.g. after leaving) */
+  const ownMove = useRef(false)
   const inbox = useRef<Move[]>([])
   /** The live channel, plus a counter so a slow connect can't outlive a newer one */
   const channelRef = useRef<Online['channel'] | null>(null)
@@ -234,7 +236,7 @@ export function useGame() {
     const g = game.current
     if (!g) return
     // Watching someone else's turn online: their device saves, ours just follows along
-    if (!iSave) return setSync('live')
+    if (!iSave && !ownMove.current) return setSync('live')
     if (state === lastSaved.current) return
     setSync('saving')
     const t = setTimeout(async () => {
@@ -251,9 +253,11 @@ export function useGame() {
         }
         g.version = version
         lastSaved.current = state
+        ownMove.current = false
         setSync('saved')
       } catch (err) {
         console.error('Could not save game', err)
+        ownMove.current = false
         setSync('error')
         if (online) resync()
       }
@@ -278,6 +282,7 @@ export function useGame() {
         if (applyAction(before, action) === before) return
         online.channel.send({ type: 'broadcast', event: 'move', payload: { seq: before.seq, action } satisfies Move })
       }
+      if (!isTick(action)) ownMove.current = true
       dispatch(action)
       const g = game.current
       if (g && !isTick(action)) logAction(g.id, action).catch((err) => console.error('Could not log action', err))
