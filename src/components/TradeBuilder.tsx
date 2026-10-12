@@ -125,7 +125,8 @@ function Side({ title, state, owner, bundle, onChange }: SideProps) {
   const player = state.players[owner]
   const deeds = BOARD.flatMap((t, i) => (isBuyable(t) && state.owners[i] === owner ? [i] : []))
   const maxCash = Math.max(0, player.cash)
-  const setCash = (cash: number) => onChange({ ...bundle, cash: Math.min(maxCash, Math.max(0, Math.round(cash))) })
+  // Typed amounts are kept as typed (the footer flags too much); only the +/− buttons stop at the balance
+  const setCash = (cash: number) => onChange({ ...bundle, cash: Math.max(0, Math.round(cash) || 0) })
   const toggle = (i: number) =>
     onChange({
       ...bundle,
@@ -178,13 +179,15 @@ function Side({ title, state, owner, bundle, onChange }: SideProps) {
             value={bundle.cash || ''}
             placeholder="0"
             onChange={(e) => setCash(Number(e.target.value))}
+            // Typing replaces the amount rather than adding digits to it
+            onFocus={(e) => e.target.select()}
             aria-label={`Cash from ${player.name}, in millions of naira`}
           />
-          <button onClick={() => setCash(bundle.cash + 50)} aria-label="More cash" disabled={bundle.cash >= maxCash}>
+          <button onClick={() => setCash(Math.min(maxCash, bundle.cash + 50))} aria-label="More cash" disabled={bundle.cash >= maxCash}>
             <Plus size={16} />
           </button>
         </div>
-        <span className="deal__hint">of {naira(maxCash)}</span>
+        <span className={`deal__hint${bundle.cash > maxCash ? ' is-over' : ''}`}>of {naira(maxCash)}</span>
       </div>
 
       {player.jailFree.length > 0 && (
