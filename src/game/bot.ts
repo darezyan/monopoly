@@ -195,6 +195,16 @@ const jitter = (spread: number) => 1 + (Math.random() * 2 - 1) * spread
 const roundTo10 = (n: number) => Math.max(0, Math.round(n / 10) * 10)
 
 /**
+ * The most cash a robot will ask of `who` in a deal: never so much it leaves them broke
+ * (they keep ₦150M or a quarter of their cash, whichever is more), and never less than `offered`.
+ */
+function cashWeCanAsk(state: GameState, who: number, offered = 0): number {
+  const cash = Math.max(0, state.players[who].cash)
+  const keep = Math.max(150, cash / 4)
+  return Math.min(cash, Math.max(offered, Math.floor((cash - keep) / 10) * 10))
+}
+
+/**
  * What a deed is worth to `holder` if the board were owned as in `owners`:
  * a set-completer is worth far more than its price, and so is one that blocks a rival's set.
  */
@@ -309,7 +319,7 @@ function respondToDeal(state: GameState, me: number): Action {
       // Pay less first if we were paying; otherwise ask them for more
       const ourCash = Math.max(0, t.get.cash - ask)
       const extra = ask - (t.get.cash - ourCash)
-      const theirCash = Math.min(state.players[t.proposer].cash, t.give.cash + extra)
+      const theirCash = Math.min(cashWeCanAsk(state, t.proposer, t.give.cash), t.give.cash + extra)
       const give = { ...t.get, cash: ourCash }
       const get = { ...t.give, cash: Math.max(0, theirCash) }
       const changed = give.cash !== t.get.cash || get.cash !== t.give.cash
@@ -455,7 +465,7 @@ function leverageSwap(state: GameState, me: number): { give: Bundle; get: Bundle
     let getCash = gap > 0 ? roundTo10(gap * (0.3 + persona.greed * 0.4) * jitter(noise)) : 0
     const giveCash = gap < 0 && !grudge ? roundTo10(-gap * (0.5 - persona.greed * 0.25) * jitter(noise)) : 0
     if (grudge) getCash = roundTo10(getCash * 1.15 + 20)
-    getCash = Math.min(getCash, Math.max(0, state.players[other].cash))
+    getCash = Math.min(getCash, cashWeCanAsk(state, other, t.give.cash))
 
     const give: Bundle = { deeds: t.get.deeds, cash: giveCash, jailCards: t.get.jailCards }
     const get: Bundle = { deeds: [...t.give.deeds, ...missing], cash: getCash, jailCards: t.give.jailCards }
@@ -525,7 +535,7 @@ function swapDeal(
     }
     const reserve = 40 + persona.caution * 260
     if (give > robot.cash - reserve) continue
-    get = Math.min(get, Math.max(0, state.players[holder].cash - 50))
+    get = Math.min(get, cashWeCanAsk(state, holder))
 
     const action: Action = {
       type: 'proposeTrade',
