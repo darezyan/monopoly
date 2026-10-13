@@ -36,6 +36,13 @@ const ROBOT_BID_MS = 1400
 const SAVE_DEBOUNCE_MS = 600
 /** How long to wait for a missing move before reloading the saved game */
 const RESYNC_MS = 1500
+/** While watching, check the saved game this often in case a live move never reached us */
+const CATCH_UP_MS = 5000
+/** Wait before trying a failed save again */
+const SAVE_RETRY_MS = 3000
+
+/** Someone else saved a newer game first; retrying our save won't help */
+class SaveConflict extends Error {}
 
 export type SyncStatus = 'offline' | 'idle' | 'loading' | 'saving' | 'saved' | 'live' | 'error'
 
@@ -82,6 +89,8 @@ export function useGame() {
   const lastSaved = useRef<GameState | null>(null)
   /** We just made a move here: save its result ourselves even if the turn has passed on (e.g. after leaving) */
   const ownMove = useRef(false)
+  /** Bumped to try a failed save again */
+  const [saveRetry, setSaveRetry] = useState(0)
   const inbox = useRef<Move[]>([])
   /** The live channel, plus a counter so a slow connect can't outlive a newer one */
   const channelRef = useRef<Online['channel'] | null>(null)
@@ -136,6 +145,21 @@ export function useGame() {
     dispatch({ type: 'load', state: saved.state })
   }, [])
 
+  /**
+   * Reload the saved game if it holds moves we never got live (a dropped broadcast with
+   * nothing after it to reveal the gap). Cheap: only reads the version and move count.
+   */
+  const catchUp = useCallback(async () => {
+    const g = game.current
+    if (!g || inbox.current.length > 0) return
+    try {
+      const row = await currentVersion(g.id)
+      if (row && row.seq > latest.current.seq && inbox.current.length === 0) await resync()
+    } catch (err) {
+      console.error('Could not check for missed moves', err)
+    }
+  }, [resync])
+
   /** Join the live channel for an online game. */
   const goLive = useCallback(
     async (id: string, hostId: string) => {
@@ -155,6 +179,8 @@ export function useGame() {
           ({ new: row }) => {
             // Keep our version current so we can save when it's our turn
             if (game.current && row.version > game.current.version) game.current.version = row.version
+            // A save landed: give its live moves a moment to arrive, then make sure we have them
+            setTimeout(catchUp, RESYNC_MS)
           },
         )
         .on('presence', { event: 'sync' }, () => setPeers(new Set(Object.keys(channel.presenceState()))))
@@ -168,7 +194,7 @@ export function useGame() {
       channelRef.current = channel
       setOnline({ gameId: id, me, hostId, channel })
     },
-    [resync],
+    [resync, catchUp],
   )
 
   /** Start a brand-new offline or pass-and-play game (saved when online). */
@@ -246,10 +272,10 @@ export function useGame() {
           // Someone saved first (usually the previous player, just as the turn passed).
           // If we're not behind them, take the newer version number and save again.
           const latestRow = await currentVersion(g.id)
-          if (!latestRow || latestRow.seq > state.seq) throw new Error('Game was changed elsewhere')
+          if (!latestRow || latestRow.seq > state.seq) throw new SaveConflict('Game was changed elsewhere')
           g.version = latestRow.version
           version = await saveGameRow(g.id, state, g.version)
-          if (version === null) throw new Error('Game was changed elsewhere')
+          if (version === null) throw new SaveConflict('Game was changed elsewhere')
         }
         g.version = version
         lastSaved.current = state
@@ -257,13 +283,38 @@ export function useGame() {
         setSync('saved')
       } catch (err) {
         console.error('Could not save game', err)
-        ownMove.current = false
         setSync('error')
-        if (online) resync()
+        if (err instanceof SaveConflict) {
+          ownMove.current = false
+          if (online) resync()
+        } else {
+          // Most likely a network blip: keep the move ours and try again, or nobody else ever sees it
+          setTimeout(() => setSaveRetry((n) => n + 1), SAVE_RETRY_MS)
+        }
       }
     }, SAVE_DEBOUNCE_MS)
     return () => clearTimeout(t)
-  }, [state, iSave, online, resync])
+  }, [state, iSave, online, resync, saveRetry])
+
+  // Safety net while watching others play: if a live move got lost, pick it up from the saved game.
+  useEffect(() => {
+    if (!online) return
+    const check = () => {
+      if (!iSave && document.visibilityState === 'visible') catchUp()
+    }
+    const poll = setInterval(check, CATCH_UP_MS)
+    // Phones pause background tabs and drop the connection; catch up as soon as we're back
+    const onBack = () => {
+      if (document.visibilityState === 'visible') catchUp()
+    }
+    document.addEventListener('visibilitychange', onBack)
+    window.addEventListener('online', onBack)
+    return () => {
+      clearInterval(poll)
+      document.removeEventListener('visibilitychange', onBack)
+      window.removeEventListener('online', onBack)
+    }
+  }, [online, iSave, catchUp])
 
   // Dev-only console hook for setting up scenarios: __eko.load(state), __eko.state()
   useEffect(() => {
