@@ -3156,6 +3156,38 @@ body {
   text-transform: capitalize;
 }
 
+/* A robot's level: 1 bar easy, 2 normal, 3 sharp */
+.robot-meter {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 1.5px;
+  height: 10px;
+  vertical-align: -1px;
+}
+
+.robot-meter__bar {
+  width: 3px;
+  border-radius: 1px;
+  background: currentColor;
+  opacity: 0.25;
+}
+
+.robot-meter__bar:nth-child(1) {
+  height: 4px;
+}
+
+.robot-meter__bar:nth-child(2) {
+  height: 7px;
+}
+
+.robot-meter__bar:nth-child(3) {
+  height: 10px;
+}
+
+.robot-meter__bar.is-on {
+  opacity: 1;
+}
+
 @media (max-width: 900px) {
   .home {
     grid-template-columns: 1fr;

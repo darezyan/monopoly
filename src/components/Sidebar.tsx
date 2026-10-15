@@ -15,6 +15,7 @@ import {
 } from 'lucide-react'
 import { BOARD, GROUP_COLORS, naira, type Tile } from '../data/board'
 import type { Game, SyncStatus } from '../game/useGame'
+import { RobotMeter } from './RobotMeter'
 import { TopControls } from './TopControls'
 import { VoiceDock } from './VoiceDock'
 import type { Voice } from '../voice/useVoice'
@@ -473,7 +474,8 @@ function PlayerCard({ player, active, state, presence, isMe, talking, bubble, on
           {isMe && <span className="player__badge player__badge--me">You</span>}
           {player.robot && (
             <span className="player__badge player__badge--bot" title={`${player.robot} robot`}>
-              <Bot size={11} strokeWidth={2.5} /> <span className="player__badge-text">{player.robot}</span>
+              <Bot size={11} strokeWidth={2.5} /> <RobotMeter level={player.robot} />
+              <span className="player__badge-text">{player.robot}</span>
             </span>
           )}
           {player.bankrupt && <span className="player__badge player__badge--out">{player.left ? 'Left' : 'Bankrupt'}</span>}

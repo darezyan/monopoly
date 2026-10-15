@@ -3,6 +3,7 @@ import { ArrowLeftRight, Building2, DoorOpen, KeyRound, Lock, X } from 'lucide-r
 import { BOARD, GROUP_COLORS, naira, type ColorGroup } from '../data/board'
 import { HOTEL, buildingsOf, leaveBlocker, isBuyable, level, netWorth, ownsGroup, type GameState } from '../game/game'
 import { TOKEN_LABELS, TokenDisc } from './Token'
+import { RobotMeter } from './RobotMeter'
 import { iconFor } from './TileIcon'
 
 const GROUPS = Object.keys(GROUP_COLORS) as ColorGroup[]
@@ -71,6 +72,12 @@ export function Portfolio({ state, playerId, onClose, onOpenDeed, canManage, onT
             <h2>{player.name}</h2>
             <span>
               {TOKEN_LABELS[player.token]}
+              {player.robot && (
+                <>
+                  {' · '}
+                  <RobotMeter level={player.robot} /> {player.robot[0].toUpperCase() + player.robot.slice(1)} robot
+                </>
+              )}
               {player.bankrupt && (player.left ? ' · Left the game' : ' · Bankrupt')}
               {player.inJail && (
                 <>
