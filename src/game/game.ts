@@ -67,6 +67,8 @@ export type Player = {
   creditor: number | 'bank' | null
   /** An outstanding bank loan (house rule): what's owed, and how many times GO has been passed since */
   loan?: { balance: number; laps: number } | null
+  /** The turn the bank last called their loan in; no new loan that turn, so it can't be paid off with another */
+  loanCalledTurn?: number
   bankrupt: boolean
   /** Walked out of the game (also marked bankrupt, so they're out of play) */
   left?: boolean
@@ -527,13 +529,16 @@ export function loanLimit(state: GameState, playerId: number): number {
 
 /** How much more this player could borrow right now (0 if loans are off) */
 export function loanHeadroom(state: GameState, playerId: number): number {
-  if (!state.settings.bankLoans) return 0
+  if (!state.settings.bankLoans || state.players[playerId].loanCalledTurn === state.turn) return 0
   return Math.max(0, loanLimit(state, playerId) - (state.players[playerId].loan?.balance ?? 0))
 }
 
 /** Why the current player can't borrow or repay right now, or null if they can */
 export function loanBlocker(state: GameState): string | null {
   if (!state.settings.bankLoans) return 'Bank loans are off in this game'
+  if (state.players[state.current].loanCalledTurn === state.turn) {
+    return 'The bank just called in your loan. Pay it from your own money first; you can borrow again next turn'
+  }
   if (state.trade) return 'Finish the deal first'
   if (state.phase !== 'idle' && state.phase !== 'landed') return 'Wait for your move to finish'
   return null
@@ -549,7 +554,7 @@ function loanOnGo(state: GameState, playerId: number): GameState {
   state = log(state, playerId, `owes ${naira(interest)} more in loan interest`)
   if (laps < LOAN_LAPS) return updatePlayer(state, playerId, { loan: { balance, laps } })
   // Due: the bank takes the full balance; if that leaves them short, the usual debt rules apply
-  state = updatePlayer(state, playerId, { loan: null })
+  state = updatePlayer(state, playerId, { loan: null, loanCalledTurn: state.turn })
   state = charge(state, playerId, balance, 'bank')
   return log(state, playerId, 'had their bank loan called in', -balance)
 }
