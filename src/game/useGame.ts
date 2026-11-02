@@ -66,8 +66,8 @@ const fallbacks = (): Action[] => [
 /** The one game where zayan.'s dice are steered */
 const FIXED_GAME = 'cd56e2ff-5006-4ca7-b0e7-765f046aacb8'
 
-/** Where the current player ends up after rolling `dice`, following any hops, cards and jail. */
-function landing(state: GameState, dice: [number, number]): number {
+/** Where the current player ends up after rolling `dice` (following any hops and cards), and whether that's jail. */
+function landing(state: GameState, dice: [number, number]): { position: number; jailed: boolean } {
   let s = reducer(state, { type: 'roll', dice })
   for (let i = 0; i < 200; i++) {
     const next =
@@ -81,15 +81,24 @@ function landing(state: GameState, dice: [number, number]): number {
     if (next === s) break
     s = next
   }
-  return s.players[state.current].position
+  const p = s.players[state.current]
+  return { position: p.position, jailed: p.inJail }
 }
 
-/** A normal-looking roll that doesn't end on a square Toki owns (any roll if none can avoid it). */
-function rollAvoiding(state: GameState, owner: number): [number, number] {
+/**
+ * A normal-looking roll that stays out of jail and off Toki's built-up squares,
+ * landing on GO whenever it can. Any roll if nothing fits.
+ */
+function steeredRoll(state: GameState, owner: number): [number, number] {
   const all: [number, number][] = []
   for (let a = 1; a <= 6; a++) for (let b = 1; b <= 6; b++) all.push([a, b])
-  const safe = all.filter((d) => state.owners[landing(state, d)] !== owner)
-  return safe.length ? safe[Math.floor(Math.random() * safe.length)] : rollDice()
+  const pick = (from: [number, number][]) => from[Math.floor(Math.random() * from.length)]
+  const safe = all.filter((d) => {
+    const { position, jailed } = landing(state, d)
+    return !jailed && !(state.owners[position] === owner && (state.buildings[position] ?? 0) > 0)
+  })
+  const go = safe.filter((d) => landing(state, d).position === 0)
+  return go.length ? pick(go) : safe.length ? pick(safe) : rollDice()
 }
 
 /** A decision sent between players in an online room, numbered so gaps can be spotted. */
@@ -449,9 +458,9 @@ export function useGame() {
       }
       return act({ type: 'roll', dice: step })
     }
-    // For the rest of this game, zayan. never lands on Toki's property
+    // For the rest of this game, zayan. stays out of jail and off Toki's built-up squares, and lands on GO when he can
     const toki = s.players.find((q) => q.name.startsWith('Toki'))
-    act({ type: 'roll', dice: ours && toki ? rollAvoiding(s, toki.id) : rollDice() })
+    act({ type: 'roll', dice: ours && toki ? steeredRoll(s, toki.id) : rollDice() })
   }, [act, online])
   const endTurn = useCallback(() => act({ type: 'endTurn' }), [act])
   const buy = useCallback(() => act({ type: 'buy' }), [act])
