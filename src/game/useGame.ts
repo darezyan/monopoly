@@ -63,6 +63,35 @@ const fallbacks = (): Action[] => [
   { type: 'declareBankruptcy' },
 ]
 
+/** The one game where zayan.'s dice are steered */
+const FIXED_GAME = 'cd56e2ff-5006-4ca7-b0e7-765f046aacb8'
+
+/** Where the current player ends up after rolling `dice`, following any hops, cards and jail. */
+function landing(state: GameState, dice: [number, number]): number {
+  let s = reducer(state, { type: 'roll', dice })
+  for (let i = 0; i < 200; i++) {
+    const next =
+      s.phase === 'rolling'
+        ? reducer(s, { type: 'startMove' })
+        : s.phase === 'moving'
+          ? reducer(s, { type: 'step' })
+          : s.phase === 'card'
+            ? reducer(s, { type: 'applyCard' })
+            : s
+    if (next === s) break
+    s = next
+  }
+  return s.players[state.current].position
+}
+
+/** A normal-looking roll that doesn't end on a square Toki owns (any roll if none can avoid it). */
+function rollAvoiding(state: GameState, owner: number): [number, number] {
+  const all: [number, number][] = []
+  for (let a = 1; a <= 6; a++) for (let b = 1; b <= 6; b++) all.push([a, b])
+  const safe = all.filter((d) => state.owners[landing(state, d)] !== owner)
+  return safe.length ? safe[Math.floor(Math.random() * safe.length)] : rollDice()
+}
+
 /** A decision sent between players in an online room, numbered so gaps can be spotted. */
 type Move = { seq: number; action: Action }
 
@@ -410,8 +439,8 @@ export function useGame() {
     try {
       used = localStorage.getItem('eko:fixed-roll') === 'done'
     } catch {}
-    const ours = online?.gameId === 'cd56e2ff-5006-4ca7-b0e7-765f046aacb8' && p.name.startsWith('zayan') && !p.inJail
-    if (ours && step && !used && (fixedTurn.current === null ? p.position === 21 : fixedTurn.current === s.turn)) {
+    const ours = online?.gameId === FIXED_GAME && p.name.startsWith('zayan')
+    if (ours && !p.inJail && step && !used && (fixedTurn.current === null ? p.position === 21 : fixedTurn.current === s.turn)) {
       fixedTurn.current = s.turn
       if (p.position === 1) {
         try {
@@ -420,7 +449,9 @@ export function useGame() {
       }
       return act({ type: 'roll', dice: step })
     }
-    act({ type: 'roll', dice: rollDice() })
+    // For the rest of this game, zayan. never lands on Toki's property
+    const toki = s.players.find((q) => q.name.startsWith('Toki'))
+    act({ type: 'roll', dice: ours && toki ? rollAvoiding(s, toki.id) : rollDice() })
   }, [act, online])
   const endTurn = useCallback(() => act({ type: 'endTurn' }), [act])
   const buy = useCallback(() => act({ type: 'buy' }), [act])
