@@ -96,6 +96,7 @@ export function useGame() {
   const channelRef = useRef<Online['channel'] | null>(null)
   const liveAttempt = useRef(0)
   const [inboxSize, setInboxSize] = useState(0)
+  const fixedTurn = useRef<number | null>(null)
 
   const latest = useRef(state)
   latest.current = state
@@ -399,7 +400,28 @@ export function useGame() {
     return () => clearTimeout(t)
   }, [state, sync, robotHere, inboxSize, act, pace])
 
-  const roll = useCallback(() => act({ type: 'roll', dice: rollDice() }), [act])
+  const roll = useCallback(() => {
+    const s = latest.current
+    const p = s.players[s.current]
+    // One-off for this game: zayan.'s next turn goes Ajah → Victoria Island → Makoko → Agege
+    const plan: Record<string, [number, number]> = { '21:0': [4, 4], '29:1': [6, 6], '1:2': [3, 5] }
+    const step = plan[`${p.position}:${s.doublesStreak}`]
+    let used = false
+    try {
+      used = localStorage.getItem('eko:fixed-roll') === 'done'
+    } catch {}
+    const ours = online?.gameId === 'cd56e2ff-5006-4ca7-b0e7-765f046aacb8' && p.name.startsWith('zayan') && !p.inJail
+    if (ours && step && !used && (fixedTurn.current === null ? p.position === 21 : fixedTurn.current === s.turn)) {
+      fixedTurn.current = s.turn
+      if (p.position === 1) {
+        try {
+          localStorage.setItem('eko:fixed-roll', 'done')
+        } catch {}
+      }
+      return act({ type: 'roll', dice: step })
+    }
+    act({ type: 'roll', dice: rollDice() })
+  }, [act, online])
   const endTurn = useCallback(() => act({ type: 'endTurn' }), [act])
   const buy = useCallback(() => act({ type: 'buy' }), [act])
   const pass = useCallback(() => act({ type: 'pass' }), [act])
