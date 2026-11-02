@@ -162,6 +162,7 @@ export type Action =
   | { type: 'unmortgage'; index: number }
   | { type: 'declareBankruptcy' }
   | { type: 'leaveGame'; player: number }
+  | { type: 'kickPlayer'; player: number }
   | { type: 'endTurn' }
   | { type: 'proposeTrade'; to: number; give: Bundle; get: Bundle }
   | { type: 'counterTrade'; give: Bundle; get: Bundle }
@@ -796,12 +797,25 @@ export function leaveBlocker(state: GameState, id: number): string | null {
   return null
 }
 
+/** Why the host can't remove robot `id` right now, or null if they can: any time except mid-hop. */
+export function kickBlocker(state: GameState, id: number): string | null {
+  const p = state.players[id]
+  if (!p || p.bankrupt) return 'Already out of the game'
+  if (!p.robot) return 'Only robots can be removed'
+  if (state.phase === 'rolling' || state.phase === 'moving') return 'Wait for the move to finish'
+  return null
+}
+
 /**
- * A player walks out on their turn: everything they own goes back to the bank (unbuilt,
- * unmortgaged), their cash and debts vanish, and play carries on without them.
+ * A player walks out on their turn (or the host removes a robot): everything they own goes back
+ * to the bank (unbuilt, unmortgaged), their cash and debts vanish, and play carries on without them.
  */
-function leaveGame(state: GameState, id: number): GameState {
+function leaveGame(state: GameState, id: number, kicked = false): GameState {
   const player = state.players[id]
+  // Removed while a jail-free card they just drew is on screen: it goes back under its deck
+  if (id === state.current && state.drawn && drawnCard(state)?.effect.type === 'jailFree') {
+    state = returnJailCard(state, state.drawn.deck)
+  }
   const owned = BOARD.flatMap((_, i) => (state.owners[i] === id ? [i] : []))
 
   const bank = { ...state.bank }
@@ -847,7 +861,7 @@ function leaveGame(state: GameState, id: number): GameState {
   })
   // Anyone they owed just loses the debt; nobody owes a player who's gone
   for (const p of state.players) if (p.creditor === id) state = updatePlayer(state, p.id, { creditor: 'bank' })
-  state = log(state, id, 'left the game. Their property goes back to the bank')
+  state = log(state, id, `${kicked ? 'was removed by the host' : 'left the game'}. Their property goes back to the bank`)
 
   const left = activePlayers(state)
   if (left.length === 1) {
@@ -1121,6 +1135,7 @@ function tradeReducer(state: GameState, action: Action): GameState {
 export function reducer(state: GameState, action: Action): GameState {
   if (state.phase === 'over') return state
   if (action.type === 'leaveGame') return leaveBlocker(state, action.player) ? state : leaveGame(state, action.player)
+  if (action.type === 'kickPlayer') return kickBlocker(state, action.player) ? state : leaveGame(state, action.player, true)
   // An auction in progress takes priority over everything
   if (state.auction) return AUCTION_ACTIONS.has(action.type) ? auctionReducer(state, action) : state
   if (action.type === 'proposeTrade' || TRADE_ACTIONS.has(action.type)) return tradeReducer(state, action)

@@ -412,6 +412,7 @@ export function useGame() {
   const unmortgage = useCallback((index: number) => act({ type: 'unmortgage', index }), [act])
   const declareBankruptcy = useCallback(() => act({ type: 'declareBankruptcy' }), [act])
   const leaveGame = useCallback((player: number) => act({ type: 'leaveGame', player }), [act])
+  const kickPlayer = useCallback((player: number) => act({ type: 'kickPlayer', player }), [act])
   const proposeTrade = useCallback(
     (to: number, give: Bundle, get: Bundle) => act({ type: 'proposeTrade', to, give, get }),
     [act],
@@ -451,6 +452,7 @@ export function useGame() {
     unmortgage,
     declareBankruptcy,
     leaveGame,
+    kickPlayer,
     proposeTrade,
     counterTrade,
     acceptTrade,

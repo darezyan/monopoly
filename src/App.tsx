@@ -12,7 +12,7 @@ import { Sidebar, canTrade, type FeedTab } from './components/Sidebar'
 import { TopControls } from './components/TopControls'
 import { LoanPanel } from './components/LoanPanel'
 import { TradeBuilder } from './components/TradeBuilder'
-import { DEFAULT_SETTINGS } from './game/game'
+import { DEFAULT_SETTINGS, actingPlayer, kickBlocker } from './game/game'
 import { createRoom, loadGameRow } from './game/persistence'
 import { useGame } from './game/useGame'
 import { useVoice, type Voice } from './voice/useVoice'
@@ -216,6 +216,8 @@ function GameScreen({ game, voice, onExit }: { game: ReturnType<typeof useGame>;
 
   // Chat (online games): a sheet on phones, a sidebar tab on bigger screens
   const me = game.online?.me ?? null
+  /** Whoever created the room (or anyone at this device offline) can remove robots */
+  const isHost = !game.online || game.online.hostId === game.online.me
   const chat = useChat(game.online?.gameId ?? null, me)
   const phone = useIsPhone()
   const [chatOpen, setChatOpen] = useState(false)
@@ -332,6 +334,21 @@ function GameScreen({ game, voice, onExit }: { game: ReturnType<typeof useGame>;
                   setPortfolio(null)
                 }
               : undefined
+          }
+          onKick={
+            isHost && state.players[portfolio].robot
+              ? () => {
+                  game.kickPlayer(portfolio)
+                  setPortfolio(null)
+                }
+              : undefined
+          }
+          kickReason={
+            kickBlocker(state, portfolio) ??
+            // Online, moves are numbered in order, so only kick while this device is the one making moves
+            (game.online && !game.myTurn && !state.players[actingPlayer(state)].robot
+              ? 'You can remove a robot on your turn or a robot’s turn'
+              : null)
           }
           onClose={() => setPortfolio(null)}
           onOpenDeed={(index) => {

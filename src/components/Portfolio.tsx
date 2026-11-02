@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { ArrowLeftRight, Building2, DoorOpen, KeyRound, Lock, X } from 'lucide-react'
+import { ArrowLeftRight, Building2, DoorOpen, KeyRound, Lock, UserX, X } from 'lucide-react'
 import { BOARD, GROUP_COLORS, naira, type ColorGroup } from '../data/board'
 import { HOTEL, buildingsOf, leaveBlocker, isBuyable, level, netWorth, ownsGroup, type GameState } from '../game/game'
 import { TOKEN_LABELS, TokenDisc } from './Token'
@@ -42,10 +42,15 @@ type Props = {
   onTrade?: () => void
   /** Walk out of the game for good (only on your own seat) */
   onLeave?: () => void
+  /** Remove this robot from the game (only for whoever created the room) */
+  onKick?: () => void
+  /** Why the robot can't be removed right now, if it can't */
+  kickReason?: string | null
 }
 
-export function Portfolio({ state, playerId, onClose, onOpenDeed, canManage, onTrade, onLeave }: Props) {
+export function Portfolio({ state, playerId, onClose, onOpenDeed, canManage, onTrade, onLeave, onKick, kickReason }: Props) {
   const [confirmingLeave, setConfirmingLeave] = useState(false)
+  const [confirmingKick, setConfirmingKick] = useState(false)
   const player = state.players[playerId]
   const mine = playerId === state.current && canManage
   const owned = BOARD.filter((_, i) => state.owners[i] === playerId).length
@@ -203,6 +208,19 @@ export function Portfolio({ state, playerId, onClose, onOpenDeed, canManage, onT
               {leaveBlocker(state, playerId) ??
                 'All your property goes back to the bank and your cash is gone. You can’t come back in.'}
             </p>
+          </div>
+        )}
+        {onKick && !player.bankrupt && (
+          <div className="sheet__leave">
+            <button
+              disabled={!!kickReason}
+              className={`offer__pass debt__bust${confirmingKick ? ' is-confirming' : ''}`}
+              onClick={() => (confirmingKick ? onKick() : setConfirmingKick(true))}
+              onBlur={() => setConfirmingKick(false)}
+            >
+              <UserX size={16} /> {confirmingKick ? 'Sure? Tap again' : `Remove ${player.name}`}
+            </button>
+            <p>{kickReason ?? 'All their property goes back to the bank and their cash is gone. They can’t come back in.'}</p>
           </div>
         )}
       </aside>
